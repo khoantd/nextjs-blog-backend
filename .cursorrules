@@ -1,0 +1,70 @@
+# Project-Specific Rules
+
+## Development Guidelines
+- This is a TypeScript Express backend for Next.js blog CMS with AI workflows
+- Follow Express.js and TypeScript best practices
+- Use TypeScript strict mode and proper typing
+- Maintain consistent code style with existing codebase
+- Use Prisma ORM for database operations
+- Implement proper error handling with custom error classes
+
+## Code Quality
+- Write clean, maintainable, and well-documented code
+- Use meaningful variable and function names
+- Add proper error handling and validation
+- Include type annotations where beneficial
+- Follow existing patterns for authentication and authorization
+- Use async/await consistently for database operations
+
+## File Organization
+- Keep routes in `/src/routes/` directory
+- Place utilities and services in `/src/lib/` directory
+- Separate business logic from route handlers
+- Use proper import/export conventions
+- Follow existing project structure with Prisma models
+
+## Authentication & Authorization
+- Use NextAuth.js for authentication with JWT tokens
+- Implement role-based access control (viewer/editor/admin)
+- Use `requireAuth()` and `requireRole()` functions from auth-utils
+- Apply authentication middleware to protected routes
+- Handle AuthenticationError and AuthorizationError appropriately
+
+## Database & API
+- Use Prisma client for all database operations
+- Implement proper error handling for database queries
+- Use consistent API response format with data/error structure
+- Add proper validation for request bodies
+- Include Swagger documentation for all endpoints
+
+## Testing
+- Write unit tests for critical functions
+- Include integration tests for API endpoints
+- Test edge cases and error scenarios
+- Test authentication and authorization flows
+
+## Security
+- Validate all user inputs with Zod schemas
+- Use proper authentication and authorization
+- Follow security best practices for Express.js
+- Keep dependencies updated
+- Implement rate limiting and CORS properly
+
+## Performance
+- Optimize database queries with proper selects and includes
+- Use efficient data structures
+- Implement proper caching strategies
+- Monitor database performance
+- Use connection pooling for Prisma
+
+## AI & Workflows
+- Follow existing workflow patterns for AI integrations
+- Use LiteLLM proxy for AI service calls
+- Implement proper error handling for AI operations
+- Structure workflow steps and triggers consistently
+
+## Git Workflow
+- Write clear, descriptive commit messages
+- Use feature branches for new development
+- Ensure code reviews before merging
+- Keep commit history clean
