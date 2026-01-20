@@ -109,11 +109,17 @@ export function analyzeStockDataFromCSV(
   // Ensure Date is parsed and sort by date, filtering out invalid dates
   const sortedData = df
     .map(row => {
+      // Check if Date field exists and is not undefined/null
+      if (!row.Date || row.Date === undefined || row.Date === null || row.Date === '') {
+        console.warn(`Invalid date encountered: "${row.Date}" - row missing Date field`);
+        return null;
+      }
+      
       const dateObj = new Date(row.Date);
 
       // Validate date is valid
       if (isNaN(dateObj.getTime())) {
-        console.warn(`Invalid date encountered: "${row.Date}"`);
+        console.warn(`Invalid date encountered: "${row.Date}" - cannot parse as valid date`);
         return null;
       }
 

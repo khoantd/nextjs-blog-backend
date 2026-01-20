@@ -36,6 +36,7 @@ export interface StockAnalysisResult {
 export interface StockAnalysis {
   id: number;
   symbol: string;
+  market: string | null; // Market identifier (e.g., 'US', 'VN')
   name: string | null;
   csvFilePath: string | null;
   status: StockAnalysisStatus | null;

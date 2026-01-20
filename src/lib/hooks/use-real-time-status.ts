@@ -74,7 +74,7 @@ export function useRealTimeStatus({
     
     const cleanup = startPolling();
     return cleanup;
-  }, [enabled, startPolling]);
+  }, [enabled, pollingInterval, analysisId]);
 
   // Manual refresh function
   const refresh = useCallback(() => {

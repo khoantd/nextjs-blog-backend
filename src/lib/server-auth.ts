@@ -21,10 +21,16 @@ export function loadGoogleAuthConfig(): GoogleAuthConfig | null {
     const configContent = readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configContent) as GoogleAuthConfig;
     
-    console.log('✅ Loaded Google auth config from google_authen.json');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ Loaded Google auth config from google_authen.json');
+    }
     return config;
-  } catch (error) {
-    console.error('❌ Error loading Google auth config from google_authen.json:', error);
+  } catch (error: any) {
+    // Silently fail if file doesn't exist (expected in Docker/production)
+    // Only log if it's a different error (permissions, invalid JSON, etc.)
+    if (error.code !== 'ENOENT' && process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ Could not load Google auth config from google_authen.json:', error.message);
+    }
     return null;
   }
 }

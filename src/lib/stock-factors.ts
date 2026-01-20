@@ -13,7 +13,8 @@ export type StockFactor =
   | "rsi_over_60"        // RSI > 60
   | "news_positive"      // Positive news sentiment
   | "short_covering"     // High short interest + price increase
-  | "macro_tailwind";    // CPI/Fed/Rate favorable conditions
+  | "macro_tailwind"     // CPI/Fed/Rate favorable conditions
+  | "strong_move";       // Significant price increase (>= 4%)
 
 export const STOCK_FACTORS: readonly StockFactor[] = [
   "market_up",
@@ -25,7 +26,8 @@ export const STOCK_FACTORS: readonly StockFactor[] = [
   "rsi_over_60",
   "news_positive",
   "short_covering",
-  "macro_tailwind"
+  "macro_tailwind",
+  "strong_move"
 ] as const;
 
 export interface FactorDescription {
@@ -95,6 +97,12 @@ export const FACTOR_DESCRIPTIONS: Record<StockFactor, FactorDescription> = {
     name: "Macro Tailwind",
     description: "Favorable CPI/Fed/interest rate environment",
     category: "fundamental"
+  },
+  strong_move: {
+    factor: "strong_move",
+    name: "Strong Move",
+    description: "Significant price increase of 4% or more",
+    category: "technical"
   }
 };
 
@@ -275,6 +283,11 @@ export function analyzeFactors(
       factors.macro_tailwind = macroEvent ? macroEvent.favorable : false;
     }
 
+    // Strong move: Significant price increase without requiring technical indicators
+    if (data.pct_change !== undefined && data.pct_change !== null) {
+      factors.strong_move = data.pct_change >= 4.0; // 4% or more increase
+    }
+
     const factorList = (Object.keys(factors) as StockFactor[]).filter(
       key => factors[key] === true
     );
@@ -348,6 +361,7 @@ export const DEFAULT_DAILY_SCORE_CONFIG: DailyScoreConfig = {
     rsi_over_60: 0.10,
     sector_up: 0.08,
     break_ma200: 0.05,
+    strong_move: 0.10,
     news_positive: 0.02,
     short_covering: 0.03,
     macro_tailwind: 0.02

@@ -62,38 +62,63 @@ This is the backend API service for the Next.js Blog CMS with AI workflows. It p
 
 The server will start on \`http://localhost:3001\`.
 
-## API Endpoints
+## API Documentation
 
-### Authentication
-- \`GET /api/auth/providers\` - Available auth providers
+**📚 Complete API Reference:** See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for detailed endpoint documentation with request/response examples, authentication requirements, and error codes.
 
-### Blog Posts
-- \`GET /api/blog-posts\` - Get all blog posts
-- \`POST /api/blog-posts\` - Create a new blog post
+**🔧 Interactive API Docs:** Visit `/api-docs` when the server is running for Swagger UI documentation.
 
-### Stock Analysis
-- \`GET /api/stock-analyses\` - Get all stock analyses
-- \`POST /api/stock-analyses\` - Create a new stock analysis
-- \`GET /api/stock-analyses/:id\` - Get a specific stock analysis
+### Quick Reference
 
-### Workflows
-- \`GET /api/workflows\` - Get all workflows
-- \`POST /api/workflows\` - Create a new workflow
-- \`PUT /api/workflows/:id\` - Update a workflow
+#### Authentication
+- `GET /api/auth/providers` - Available auth providers
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login with email/password
+- `POST /api/auth/set-password` - Set password for OAuth users
+- `GET /api/auth/password-status` - Check password status
 
-### Users
-- \`GET /api/users\` - Get all users (admin only)
-- \`PUT /api/users/role\` - Update user role (admin only)
+#### Blog Posts
+- `GET /api/blog-posts` - Get all blog posts (paginated)
+- `POST /api/blog-posts` - Create a new blog post
 
-### Earnings
-- \`GET /api/earnings\` - Get all earnings data
-- \`POST /api/earnings\` - Create new earnings data
+#### Stock Analysis
+- `GET /api/stock-analyses` - Get all stock analyses (paginated)
+- `POST /api/stock-analyses` - Create a new stock analysis
+- `GET /api/stock-analyses/:id` - Get specific stock analysis
+- `POST /api/stock-analyses/:id/upload` - Upload CSV file
+- `POST /api/stock-analyses/:id/analyze` - Trigger full analysis
+- `GET /api/stock-analyses/:id/daily-scores` - Get daily scoring data
+- `GET /api/stock-analyses/:id/predictions` - Get market predictions
+- `POST /api/stock-analyses/:id/fetch-historical` - Fetch historical data
+- `POST /api/stock-analyses/:id/fetch-vnstock-csv` - Fetch VN stock data
+- `DELETE /api/stock-analyses/:id` - Delete stock analysis (admin only)
+
+#### Earnings
+- `GET /api/earnings` - Get all earnings data (paginated)
+- `POST /api/earnings` - Create new earnings data
+- `POST /api/earnings/sync` - Sync from Alpha Vantage
+- `POST /api/earnings/analyze` - Trigger AI analysis
+- `GET /api/earnings/:symbol` - Get earnings for symbol
+
+#### Stocks
+- `GET /api/stocks/price` - Get latest stock price
+
+#### Users
+- `GET /api/users` - Get all users (admin only)
+- `PUT /api/users/role` - Update user role (admin only)
+- `GET /api/users/by-email` - Get user by email (public, auto-creates)
+
+#### Workflows
+- `GET /api/workflows` - Get all workflows
+- `POST /api/workflows` - Create a new workflow
+- `PUT /api/workflows/:id` - Update a workflow
 
 ## Environment Variables
 
 See \`.env.example\` for required environment variables:
 
-- \`DATABASE_URL\` - SQLite database path
+### Required Variables
+- \`DATABASE_URL\` - SQLite database path (e.g., `file:/app/data/prod.db`)
 - \`NEXTAUTH_SECRET\` - NextAuth secret key
 - \`NEXTAUTH_URL\` - Backend URL
 - \`GOOGLE_CLIENT_ID\` - Google OAuth client ID
@@ -105,6 +130,9 @@ See \`.env.example\` for required environment variables:
 - \`INNGEST_SIGNING_KEY\` - Inngest signing key
 - \`PORT\` - Server port (default: 3001)
 - \`CORS_ORIGIN\` - Frontend URL for CORS
+
+### Optional Variables
+- \`RUN_MIGRATIONS\` or \`AUTO_MIGRATE\` - Set to `true` or `1` to automatically run database migrations on startup. Useful for Docker deployments and production environments. Default: `false`
 
 ## Database Schema
 
@@ -123,15 +151,102 @@ The application uses Prisma with SQLite. See \`prisma/schema.prisma\` for the co
 
 ### Docker
 
-1. Build the Docker image:
-   \`\`\`bash
-   docker build -t nextjs-blog-backend .
-   \`\`\`
+#### Method 1: Using Docker Compose (Recommended)
 
-2. Run with Docker Compose:
+1. Build and start containers:
    \`\`\`bash
+   docker-compose build
    docker-compose up -d
    \`\`\`
+
+   Or build and start in one command:
+   \`\`\`bash
+   docker-compose up -d --build
+   \`\`\`
+
+2. View logs:
+   \`\`\`bash
+   docker-compose logs -f backend
+   \`\`\`
+
+3. Stop containers:
+   \`\`\`bash
+   docker-compose down
+   \`\`\`
+
+#### Method 2: Using Build Script
+
+1. Build locally:
+   \`\`\`bash
+   npm run docker:build
+   # Or directly:
+   ./scripts/build-docker.sh
+   \`\`\`
+
+2. Build for production:
+   \`\`\`bash
+   npm run docker:build:prod
+   # Or:
+   ./scripts/build-docker.sh --tag production
+   \`\`\`
+
+3. Build for multiple platforms:
+   \`\`\`bash
+   npm run docker:build:multi
+   # Or:
+   ./scripts/build-docker.sh --platform linux/amd64,linux/arm64
+   \`\`\`
+
+4. Build and push to registry:
+   \`\`\`bash
+   ./scripts/build-docker.sh --registry docker.io/yourusername --tag v1.0.0 --push
+   # Or for GitHub Container Registry:
+   ./scripts/build-docker.sh --registry ghcr.io/yourorg --tag latest --push
+   \`\`\`
+
+#### Method 3: Using Docker Directly
+
+1. Build the image:
+   \`\`\`bash
+   docker build -t nextjs-blog-backend:latest .
+   \`\`\`
+
+2. Run the container:
+   \`\`\`bash
+   docker run -d \\
+     --name nextjs-blog-backend \\
+     -p 3001:3001 \\
+     -e DATABASE_URL=file:/app/data/prod.db \\
+     -e NODE_ENV=production \\
+     -e PORT=3001 \\
+     -v backend-data:/app/data \\
+     nextjs-blog-backend:latest
+   \`\`\`
+
+#### Build Script Options
+
+The build script (`./scripts/build-docker.sh`) supports:
+- \`--platform PLATFORM\` - Target platform (e.g., linux/amd64, linux/arm64)
+- \`--registry REGISTRY\` - Docker registry (e.g., docker.io/username)
+- \`--tag TAG\` - Image tag (default: latest)
+- \`--push\` - Push to registry after building
+- \`--dev\` - Use development Dockerfile
+- \`-h, --help\` - Show help message
+
+Examples:
+\`\`\`bash
+# Build for local use
+./scripts/build-docker.sh
+
+# Build and tag for production
+./scripts/build-docker.sh --tag production
+
+# Build for ARM64 and push to Docker Hub
+./scripts/build-docker.sh --platform linux/arm64 --registry docker.io/myuser --tag v1.0.0 --push
+
+# Build for multiple platforms
+./scripts/build-docker.sh --platform linux/amd64,linux/arm64
+\`\`\`
 
 ### Manual Deployment
 
@@ -141,15 +256,28 @@ The application uses Prisma with SQLite. See \`prisma/schema.prisma\` for the co
    \`\`\`
 
 2. Set production environment variables
-3. Run database migrations:
+
+3. Run database migrations (choose one method):
+   
+   **Option A: Automatic migrations on startup** (Recommended for Docker/production):
    \`\`\`bash
-   npm run db:migrate
+   # Set environment variable to enable auto-migration
+   export RUN_MIGRATIONS=true
+   # or
+   export AUTO_MIGRATE=true
+   \`\`\`
+   
+   **Option B: Manual migration**:
+   \`\`\`bash
+   npm run db:migrate:deploy
    \`\`\`
 
 4. Start the server:
    \`\`\`bash
    npm start
    \`\`\`
+   
+   If \`RUN_MIGRATIONS=true\` or \`AUTO_MIGRATE=true\` is set, migrations will run automatically on startup.
 
 ## Scripts
 

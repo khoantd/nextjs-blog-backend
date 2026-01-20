@@ -1,0 +1,85 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Development files
+.env.local
+.env.development
+.env.test
+*.local
+
+# Source files - NOTE: src/ directory is needed for build stage (not excluded here)
+# Test files are excluded below with specific patterns
+
+# Build artifacts (will be rebuilt in container)
+dist/
+*.js.map
+*.d.ts.map
+
+# Allow server.js (needed for runtime path resolution)
+!server.js
+
+# Test files
+test-*.js
+test-*.ts
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+tests/
+__tests__/
+coverage/
+.nyc_output/
+
+# Development databases
+*.db
+*.db-journal
+dev.db
+database.db
+prisma/dev.db
+prisma/prisma/dev.db
+
+# Development tools
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts (except start.sh)
+scripts/*.ts
+scripts/*.js
+scripts/build-docker.sh
+scripts/generate-secrets.sh
+scripts/update-user-role*.ts
+scripts/verify-analysis-logic.ts
+scripts/delete-all-stock-analyses.ts
+scripts/migrate-pct-change.ts
+
+# Uploads (will be created at runtime)
+uploads/
+
+# Other
+*.log
+.DS_Store
+Thumbs.db
+nextjs_blog_backend.postman_collection.json
+google_authen.json
+yarn.lock

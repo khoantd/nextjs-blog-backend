@@ -34,6 +34,11 @@ const router = Router();
  *       403:
  *         description: Forbidden - Requires Admin role
  */
+/**
+ * Note: /api/users/by-email is handled in src/index.ts as a public route
+ * with auto-creation logic. This route is not included here to avoid conflicts.
+ */
+
 router.get('/', async (req, res) => {
   try {
     const user = await getCurrentUser(req);
@@ -147,6 +152,20 @@ router.put('/role', async (req, res) => {
     console.error("Error updating user role:", error);
     return res.status(500).json({ error: "Failed to update user role" });
   }
+});
+
+// Catch-all handler for unmatched routes in /api/users/*
+// This ensures /api/users/by-email is handled by the main app route, not here
+router.use('*', (req, res) => {
+  console.warn(`[Users Router] ⚠️ Unmatched route in users router`);
+  console.warn(`[Users Router] Path: ${req.path}, Original URL: ${req.originalUrl}`);
+  console.warn(`[Users Router] Method: ${req.method}`);
+  console.warn(`[Users Router] This route should be handled by a specific route handler`);
+  res.status(404).json({ 
+    error: "Route not found in users router",
+    path: req.path,
+    originalUrl: req.originalUrl
+  });
 });
 
 export default router;

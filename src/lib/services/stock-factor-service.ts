@@ -52,6 +52,32 @@ export interface EnrichedTransaction {
 }
 
 /**
+ * Parse date string in various formats (MM/DD/YYYY, YYYY-MM-DD, etc.) to Date object
+ */
+function parseDateString(dateStr: string): Date {
+  // Try MM/DD/YYYY format first (common in Vietnamese stock data)
+  const mmddyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mmddyyyy) {
+    const [, month, day, year] = mmddyyyy;
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  }
+  
+  // Try YYYY-MM-DD format
+  const yyyymmdd = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (yyyymmdd) {
+    const [, year, month, day] = yyyymmdd;
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  }
+  
+  // Fallback to standard Date parsing
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) {
+    throw new Error(`Invalid date format: ${dateStr}`);
+  }
+  return date;
+}
+
+/**
  * Parse CSV content into stock data array
  */
 export function parseStockCSV(csvContent: string): ExtendedStockData[] {
@@ -64,13 +90,19 @@ export function parseStockCSV(csvContent: string): ExtendedStockData[] {
   const headerMap: Record<string, string> = {};
   headers.forEach((header, index) => {
     const lowerHeader = header.toLowerCase();
-    if (lowerHeader === 'date') headerMap[index] = 'Date';
+    // Map date variations to Date
+    if (lowerHeader === 'date' || lowerHeader === 'time') headerMap[index] = 'Date';
     else if (lowerHeader === 'open') headerMap[index] = 'Open';
     else if (lowerHeader === 'high') headerMap[index] = 'High';
     else if (lowerHeader === 'low') headerMap[index] = 'Low';
     else if (lowerHeader === 'close') headerMap[index] = 'Close';
     else if (lowerHeader === 'volume') headerMap[index] = 'Volume';
-    else headerMap[index] = header; // Keep original if no map
+    else if (lowerHeader === '' || lowerHeader === 'ticket') {
+      // Skip empty columns or ticket column (they're not needed for analysis)
+      headerMap[index] = '__SKIP__';
+    } else {
+      headerMap[index] = header; // Keep original if no map
+    }
   });
 
   const data: ExtendedStockData[] = [];
@@ -85,12 +117,20 @@ export function parseStockCSV(csvContent: string): ExtendedStockData[] {
       const value = values[index]?.trim();
       const mappedHeader = headerMap[index];
 
+      // Skip columns marked for skipping (empty columns, ticket, etc.)
+      if (mappedHeader === '__SKIP__') {
+        return;
+      }
+
       if (['Close', 'Open', 'High', 'Low'].includes(mappedHeader)) {
         const parsedValue = parseFloat(value);
         row[mappedHeader] = isNaN(parsedValue) ? 0 : parsedValue;
       } else if (mappedHeader === 'Volume') {
         const parsedValue = parseInt(value, 10);
         row[mappedHeader] = isNaN(parsedValue) ? 0 : parsedValue;
+      } else if (mappedHeader === 'Date') {
+        // Store date value as-is (will be parsed later)
+        row[mappedHeader] = value;
       } else {
         row[mappedHeader] = value;
       }
@@ -101,10 +141,17 @@ export function parseStockCSV(csvContent: string): ExtendedStockData[] {
     }
   }
 
-  // Sort by date
-  return data.sort((a, b) =>
-    new Date(a.Date).getTime() - new Date(b.Date).getTime()
-  );
+  // Sort by date using proper date parsing
+  return data.sort((a, b) => {
+    try {
+      const dateA = parseDateString(a.Date);
+      const dateB = parseDateString(b.Date);
+      return dateA.getTime() - dateB.getTime();
+    } catch (error) {
+      console.error(`Error sorting dates: ${error}`);
+      return 0;
+    }
+  });
 }
 
 /**
@@ -367,25 +414,87 @@ export async function saveFactorAnalysisToDatabase(
   csvContent: string
 ) {
   console.log(`[Factor Service] Saving raw stock data for stock analysis ID: ${stockAnalysisId}`);
+  console.log(`[Factor Service] CSV content length: ${csvContent.length} characters`);
+  console.log(`[Factor Service] CSV first 500 chars: ${csvContent.substring(0, 500)}`);
 
   try {
     // Parse CSV to get raw data
     const stockData = parseStockCSV(csvContent);
+    
+    if (stockData.length === 0) {
+      throw new Error('No valid stock data found in CSV. Please check the CSV format and ensure it has Date and Close columns. The CSV should have headers like: date,close,open,high,low,volume');
+    }
+    
+    console.log(`[Factor Service] Parsed ${stockData.length} rows from CSV`);
+    if (stockData.length > 0) {
+      console.log(`[Factor Service] First row sample:`, {
+        Date: stockData[0].Date,
+        Close: stockData[0].Close,
+        Open: stockData[0].Open,
+        High: stockData[0].High,
+        Low: stockData[0].Low,
+        Volume: stockData[0].Volume
+      });
+    }
 
-    // Save daily data (Raw prices only)
-    console.log(`[Factor Service] Saving ${stockData.length} days of raw price data`);
-    const factorDataToSave = stockData.map((day: any) => ({
-      stockAnalysisId,
-      date: day.Date,
-      close: day.Close,
-      open: day.Open,
-      high: day.High,
-      low: day.Low,
-      volume: day.Volume
-    }));
+    // Calculate percentage changes before saving
+    const dataWithPctChanges = calculatePctChanges(stockData);
+    
+    if (dataWithPctChanges.length === 0) {
+      throw new Error('Failed to calculate percentage changes. Please check the data format.');
+    }
+
+    // Save daily data with pctChange calculated
+    console.log(`[Factor Service] Saving ${dataWithPctChanges.length} days of raw price data with pctChange`);
+    const factorDataToSave = dataWithPctChanges.map((day: any, index: number) => {
+      // Calculate pctChange: ((current - previous) / previous) * 100
+      let pctChange: number | null = null;
+      if (index > 0 && dataWithPctChanges[index - 1].Close > 0) {
+        const prevClose = dataWithPctChanges[index - 1].Close;
+        pctChange = ((day.Close - prevClose) / prevClose) * 100;
+      } else if (day.pct_change !== undefined) {
+        // Use already calculated pct_change if available
+        pctChange = day.pct_change;
+      }
+
+      // Normalize date to YYYY-MM-DD format for consistent storage
+      let normalizedDate: string;
+      try {
+        if (!day.Date || day.Date.trim() === '') {
+          throw new Error(`Empty date value at index ${index}`);
+        }
+        const dateObj = parseDateString(day.Date);
+        if (isNaN(dateObj.getTime())) {
+          throw new Error(`Invalid date object created from "${day.Date}"`);
+        }
+        normalizedDate = dateObj.toISOString().split('T')[0];
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[Factor Service] Error parsing date "${day.Date}" at index ${index}:`, errorMsg);
+        // Fallback: try to extract YYYY-MM-DD from the string if it's already in that format
+        const dateMatch = String(day.Date).match(/(\d{4}-\d{2}-\d{2})/);
+        if (dateMatch) {
+          normalizedDate = dateMatch[1];
+          console.log(`[Factor Service] Using fallback date extraction: ${normalizedDate}`);
+        } else {
+          throw new Error(`Cannot normalize date: "${day.Date}". ${errorMsg}`);
+        }
+      }
+
+      return {
+        stockAnalysisId,
+        date: normalizedDate,
+        close: day.Close,
+        open: day.Open,
+        high: day.High,
+        low: day.Low,
+        volume: day.Volume,
+        pctChange: pctChange !== null ? parseFloat(pctChange.toFixed(4)) : null
+      };
+    });
 
     // Import prisma dynamically to avoid circular dependencies
-    const { prisma } = await import('@/lib/prisma');
+    const { prisma } = await import('../prisma');
 
     // Bulk insert daily data
     for (const data of factorDataToSave) {
@@ -427,19 +536,73 @@ export async function calculateFactorsOnDemand(
   options: FactorAnalysisOptions & { skip?: number; limit?: number } = {}
 ) {
   const { skip, limit, ...factorOptions } = options;
-  const { prisma } = await import('@/lib/prisma');
+  const { prisma } = await import('../prisma');
 
   // Technical indicators need historical data to be accurate.
   // MA200 requires at least 200 previous data points.
   // percentage change requires at least 1 previous point.
   const LOOKBACK = 210; // Extra buffer
 
+  // If limit is 0 or undefined, fetch all records (no pagination)
+  const fetchAll = limit === 0 || limit === undefined;
+
+  if (fetchAll) {
+    // Fetch all records from the beginning for accurate technical indicators
+    const rawData = await prisma.dailyFactorData.findMany({
+      where: { stockAnalysisId },
+      orderBy: { date: 'asc' }
+    });
+
+    if (rawData.length === 0) return [];
+
+    // Debug: Check first few database records
+    console.log(`[calculateFactorsOnDemand] Sample database records (first 3):`);
+    rawData.slice(0, 3).forEach((d, idx) => {
+      console.log(`  Record ${idx}: date="${d.date}" (type: ${typeof d.date}), close=${d.close}`);
+    });
+
+    // Convert to ExtendedStockData format
+    const stockData: ExtendedStockData[] = rawData.map(d => ({
+      Date: d.date,
+      Close: d.close,
+      Open: d.open || undefined,
+      High: d.high || undefined,
+      Low: d.low || undefined,
+      Volume: d.volume || undefined
+    }));
+
+    // Debug: Check first few converted records
+    console.log(`[calculateFactorsOnDemand] Sample converted records (first 3):`);
+    stockData.slice(0, 3).forEach((d, idx) => {
+      console.log(`  Converted ${idx}: Date="${d.Date}" (type: ${typeof d.Date}), Close=${d.Close}`);
+    });
+
+    // Enrich with percentage changes and indicators
+    const dataWithPct = calculatePctChanges(stockData);
+    const enrichedData = enrichWithTechnicalIndicators(dataWithPct);
+
+    // Perform factor analysis
+    const factorAnalyses = analyzeFactors(enrichedData, factorOptions);
+
+    // Merge enriched technical data with boolean factors
+    return enrichedData.map((data, index) => {
+      const analysis = factorAnalyses[index];
+      return {
+        ...data,
+        ...analysis.factors,
+        factorCount: analysis.factorCount,
+        factorList: analysis.factorList
+      };
+    });
+  }
+
+  // Paginated fetch with lookback
   const requestedSkip = skip ?? 0;
   const effectiveSkip = Math.max(0, requestedSkip - LOOKBACK);
   const actualLookback = requestedSkip - effectiveSkip;
 
-  // If limit is provided, take enough to cover both lookback and the requested page
-  const take = limit ? limit + actualLookback : undefined;
+  // Take enough to cover both lookback and the requested page
+  const take = limit + actualLookback;
 
   // 1. Fetch raw data from DB with lookback
   const rawData = await prisma.dailyFactorData.findMany({
@@ -480,7 +643,7 @@ export async function calculateFactorsOnDemand(
   });
 
   // 6. Return only the requested range (discarding lookback)
-  return allResults.slice(actualLookback);
+  return allResults.slice(actualLookback, actualLookback + limit);
 }
 
 /**
@@ -510,8 +673,12 @@ export async function calculateScoresOnDemand(
 /**
  * Retrieve current analysis results from database tables
  */
-export async function getAnalysisResultsFromDB(stockAnalysisId: number) {
-  const { prisma } = await import('@/lib/prisma');
+export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?: {
+  startDate?: string;
+  endDate?: string;
+  periodId?: string;
+}) {
+  const { prisma } = await import('../prisma');
 
   const stockAnalysis = await prisma.stockAnalysis.findUnique({
     where: { id: stockAnalysisId },
@@ -530,15 +697,53 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number) {
 
   if (!stockAnalysis) return null;
 
+  // Apply period filtering if specified
+  let filteredDailyFactorData = stockAnalysis.dailyFactorData;
+  let filteredDailyScores = stockAnalysis.dailyScores;
+  let filteredFactorTables = stockAnalysis.factorTables;
+
+  if (options?.startDate && options?.endDate) {
+    console.log(`[getAnalysisResultsFromDB] Applying period filter: ${options.startDate} to ${options.endDate}`);
+    
+    const startDate = new Date(options.startDate);
+    const endDate = new Date(options.endDate);
+    
+    // Filter daily factor data
+    filteredDailyFactorData = stockAnalysis.dailyFactorData.filter(df => {
+      const dfDate = new Date(df.date);
+      return dfDate >= startDate && dfDate <= endDate;
+    });
+    
+    // Filter daily scores
+    filteredDailyScores = stockAnalysis.dailyScores.filter(ds => {
+      const dsDate = new Date(ds.date);
+      return dsDate >= startDate && dsDate <= endDate;
+    });
+    
+    // Filter factor tables
+    filteredFactorTables = stockAnalysis.factorTables.filter(ft => {
+      const ftDate = new Date(ft.date);
+      return ftDate >= startDate && ftDate <= endDate;
+    });
+    
+    console.log(`[getAnalysisResultsFromDB] Filtered data: ${filteredDailyFactorData.length} daily records, ${filteredFactorTables.length} factor tables`);
+  }
+
   // Reconstruct the StockAnalysisResult-like structure
-  const transactions = stockAnalysis.factorTables.map(ft => {
+  // First, build transactions from factorTables (significant price movements)
+  console.log(`[getAnalysisResultsFromDB] Processing ${filteredFactorTables.length} factor tables`);
+  
+  const transactionsFromFactors = filteredFactorTables.map((ft, index) => {
     const factorData = JSON.parse(ft.factorData);
     const factors = Object.entries(factorData)
       .filter(([_, value]) => value === 1)
       .map(([key]) => key as StockFactor);
 
     // Find corresponding daily data for price and pctChange
-    const dailyData = stockAnalysis.dailyFactorData.find(df => df.date === ft.date);
+    const dailyData = filteredDailyFactorData.find(df => df.date === ft.date);
+    
+    // Debug: Check factor table date
+    console.log(`[getAnalysisResultsFromDB] Factor table ${index}: date="${ft.date}" (type: ${typeof ft.date}), transactionId=${ft.transactionId}`);
 
     return {
       tx: ft.transactionId,
@@ -550,8 +755,55 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number) {
     };
   });
 
+  // Always create transactions from all dailyFactorData for charting
+  // This ensures charts can display normal price movements regardless of significance
+  let transactions = transactionsFromFactors;
+  let filteredEnrichedData: any[] = [];
+  
+  // If we have daily factor data, create chart transactions from all daily data
+  if (filteredDailyFactorData.length > 0) {
+    console.log(`[getAnalysisResultsFromDB] Creating chart transactions from filtered dailyFactorData (${filteredDailyFactorData.length} days)`);
+    
+    // Calculate factors on-demand to get proper factor data
+    const enrichedDataWithFactors = await calculateFactorsOnDemand(stockAnalysisId, {});
+    
+    // Filter the enriched data by period as well
+    filteredEnrichedData = enrichedDataWithFactors.filter(row => {
+      if (!row.Date) return false;
+      const rowDate = new Date(row.Date);
+      return !options?.startDate || !options?.endDate || (rowDate >= new Date(options.startDate) && rowDate <= new Date(options.endDate));
+    });
+    
+    console.log(`[getAnalysisResultsFromDB] Enriched data filtered to ${filteredEnrichedData.length} records`);
+    
+    // Create transactions from filtered daily data for charting
+    transactions = filteredEnrichedData.map((row, index) => {
+      // Ensure date is valid, skip if not
+      if (!row.Date || row.Date === undefined || row.Date === null || row.Date === '') {
+        console.warn(`[getAnalysisResultsFromDB] Skipping transaction ${index} with invalid date:`, row.Date);
+        return null;
+      }
+      
+      return {
+        tx: index + 1,
+        date: row.Date,
+        close: row.Close,
+        pctChange: row.pct_change || 0,
+        factors: row.factorList || [],
+        factorCount: row.factorCount || 0
+      };
+    }).filter((tx): tx is NonNullable<typeof tx> => tx !== null);
+    
+    // Also keep significant transactions separate for factor tables if they exist
+    if (transactionsFromFactors.length > 0) {
+      console.log(`[getAnalysisResultsFromDB] Using ${transactionsFromFactors.length} significant transactions from factor tables for analysis`);
+    }
+    
+    console.log(`[getAnalysisResultsFromDB] Created ${transactions.length} chart transactions from all daily data`);
+  }
+
   // Calculate summaries
-  const dailyScores = stockAnalysis.dailyScores.map(ds => ({
+  const dailyScores = filteredDailyScores.map(ds => ({
     date: ds.date,
     score: ds.score,
     factorCount: ds.factorCount,
@@ -559,39 +811,78 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number) {
     breakdown: JSON.parse(ds.breakdown || '{}')
   }));
 
+  // Calculate factors on-demand instead of reading from database flags
+  // (since flags are not saved, they default to false)
+  const totalDays = filteredDailyFactorData.length; 
+  
+  // Get enriched data for factor counts and correlation
+  // Use filtered enriched data if available (from chart transactions), otherwise fetch all
+  let enrichedDataForAnalysis = filteredEnrichedData.length > 0 ? filteredEnrichedData : [];
+  if (enrichedDataForAnalysis.length === 0) {
+    // Fallback: fetch all enriched data if filtered data wasn't created
+    enrichedDataForAnalysis = await calculateFactorsOnDemand(stockAnalysisId, {});
+  }
+  
   const factorCounts: Partial<Record<StockFactor, number>> = {};
   let totalFactorCountAcrossDays = 0;
 
-  stockAnalysis.dailyFactorData.forEach(df => {
-    const factorsInDay: StockFactor[] = [];
-    if (df.volumeSpike) factorsInDay.push('volume_spike');
-    if (df.breakMa50) factorsInDay.push('break_ma50');
-    if (df.breakMa200) factorsInDay.push('break_ma200');
-    if (df.rsiOver60) factorsInDay.push('rsi_over_60');
-    if (df.marketUp) factorsInDay.push('market_up');
-    if (df.sectorUp) factorsInDay.push('sector_up');
-    if (df.earningsWindow) factorsInDay.push('earnings_window');
-    if (df.newsPositive) factorsInDay.push('news_positive');
-    if (df.shortCovering) factorsInDay.push('short_covering');
-    if (df.macroTailwind) factorsInDay.push('macro_tailwind');
-
-    factorsInDay.forEach(f => {
-      factorCounts[f] = (factorCounts[f] || 0) + 1;
+  // Calculate factor counts from on-demand calculated factors
+  if (enrichedDataForAnalysis && enrichedDataForAnalysis.length > 0) {
+    enrichedDataForAnalysis.forEach(day => {
+      const factorsInDay: StockFactor[] = day.factorList || [];
+      
+      factorsInDay.forEach(f => {
+        factorCounts[f] = (factorCounts[f] || 0) + 1;
+      });
+      totalFactorCountAcrossDays += factorsInDay.length;
     });
-    totalFactorCountAcrossDays += factorsInDay.length;
-  });
+  } else {
+    console.warn(`[getAnalysisResultsFromDB] No enriched factor data found for stockAnalysisId: ${stockAnalysisId}`);
+  }
 
-  const totalDays = stockAnalysis.dailyFactorData.length;
   const factorFrequency: Partial<Record<StockFactor, number>> = {};
   Object.entries(factorCounts).forEach(([factor, count]) => {
     factorFrequency[factor as StockFactor] = (count / totalDays) * 100;
   });
 
+  // Calculate correlation with price movements (needed for Top Performing Factors display)
+  let correlation: Record<StockFactor, { correlation: number; avgReturn: number; occurrences: number }> | null = null;
+  if (enrichedDataForAnalysis && enrichedDataForAnalysis.length > 0) {
+    try {
+      // Reconstruct FactorAnalysis[] format needed for correlation function
+      const factorAnalyses: FactorAnalysis[] = enrichedDataForAnalysis.map(d => ({
+        date: d.Date,
+        factors: d as any, // The merged object contains the boolean flags
+        factorCount: d.factorCount || 0,
+        factorList: d.factorList || []
+      }));
+
+      // Reconstruct ExtendedStockData[] format needed for correlation function
+      const extendedStockData: ExtendedStockData[] = enrichedDataForAnalysis.map(d => ({
+        Date: d.Date,
+        Close: d.Close,
+        pct_change: d.pct_change || 0,
+        // map other fields if needed for correlation (it only uses pct_change)
+      }));
+
+      // Calculate correlation
+      correlation = correlateFactorsWithPriceMovement(factorAnalyses, extendedStockData);
+      console.log(`[getAnalysisResultsFromDB] Calculated correlation for ${Object.keys(correlation).length} factors`);
+    } catch (error) {
+      console.error(`[getAnalysisResultsFromDB] Error calculating correlation:`, error);
+      // Continue without correlation if calculation fails
+    }
+  }
+
+  // transactionsFound should reflect significant transactions (from factorTables)
+  // but transactions array now includes all daily data for comprehensive charting
+  const transactionsFound = transactionsFromFactors.length;
+
   return {
     symbol: stockAnalysis.symbol,
     totalDays,
-    transactionsFound: transactions.length,
-    transactions,
+    transactionsFound, // Count of significant transactions (above threshold)
+    transactions, // All daily transactions for charting (includes normal price movements)
     minPctChange: stockAnalysis.minPctChange,
     factorAnalysis: {
       summary: {
@@ -599,7 +890,8 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number) {
         factorCounts,
         factorFrequency,
         averageFactorsPerDay: totalDays > 0 ? totalFactorCountAcrossDays / totalDays : 0
-      }
+      },
+      ...(correlation && { correlation }) // Include correlation if calculated
     },
     dailyScores // Added for completeness
   };

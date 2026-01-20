@@ -50,16 +50,24 @@ router.get('/', async (req, res) => {
     }
 
     const paginationOptions = getPaginationOptions(req);
+    const { symbol } = req.query;
+
+    // Build where clause with optional symbol filter
+    const where: any = {};
+    if (symbol && typeof symbol === 'string') {
+      where.symbol = symbol.toUpperCase();
+    }
 
     const [earningsData, total] = await Promise.all([
       prisma.earningsData.findMany({
+        where,
         orderBy: {
           earningsDate: "desc",
         },
         skip: paginationOptions.skip,
         take: paginationOptions.limit,
       }),
-      prisma.earningsData.count(),
+      prisma.earningsData.count({ where }),
     ]);
 
     return res.json({
@@ -253,6 +261,64 @@ router.post('/analyze', async (req, res) => {
   } catch (error) {
     console.error("Error triggering earnings analysis:", error);
     return res.status(500).json({ error: "Failed to trigger earnings analysis" });
+  }
+});
+
+/**
+ * @openapi
+ * /api/earnings/{symbol}:
+ *   get:
+ *     summary: Get earnings data for a specific symbol
+ *     tags: [Earnings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: symbol
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Stock symbol (e.g., AAPL)
+ *     responses:
+ *       200:
+ *         description: Earnings data for the symbol
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: No earnings data found for symbol
+ */
+router.get('/:symbol', async (req, res) => {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!canViewPosts(user.role)) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+
+    const { symbol } = req.params;
+    if (!symbol) {
+      return res.status(400).json({ error: "Symbol is required" });
+    }
+
+    const earningsData = await prisma.earningsData.findMany({
+      where: {
+        symbol: symbol.toUpperCase(),
+      },
+      orderBy: {
+        earningsDate: "desc",
+      },
+    });
+
+    // Return 200 with empty array if no data found (not 404 - empty result is valid)
+    return res.json({
+      data: earningsData
+    });
+  } catch (error) {
+    console.error("Error fetching earnings data for symbol:", error);
+    return res.status(500).json({ error: "Failed to fetch earnings data" });
   }
 });
 

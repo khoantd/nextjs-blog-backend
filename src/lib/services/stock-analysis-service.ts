@@ -1,18 +1,18 @@
-import { prisma } from "@/lib/prisma";
-import { stockPriceService } from "@/lib/stock-price-service";
+import { prisma } from "../prisma";
+import { stockPriceService } from "../stock-price-service";
 import {
     getAnalysisResultsFromDB,
     generateFactorInsightsPrompt,
     calculateFactorsOnDemand
-} from "@/lib/services/stock-factor-service";
+} from "./stock-factor-service";
 import {
     correlateFactorsWithPriceMovement,
     type FactorAnalysis,
     type ExtendedStockData
 } from "../stock-factors";
-import { generatePriceRecommendations, StockAnalysisData } from "@/lib/ai-price-recommendations";
-import { completion } from "@/lib/litellm-proxy";
-import { AppError } from "@/lib/errors";
+import { generatePriceRecommendations, StockAnalysisData } from "../ai-price-recommendations";
+import { completion } from "../litellm-proxy";
+import { AppError } from "../errors";
 
 export class StockAnalysisService {
 
@@ -24,8 +24,17 @@ export class StockAnalysisService {
      * 4. Generate price recommendations
      * 5. Update database
      */
-    static async performFullAnalysis(id: number) {
+    static async performFullAnalysis(id: number, options?: {
+        startDate?: string;
+        endDate?: string;
+        periodId?: string;
+    }) {
         console.log(`[StockAnalysisService] Starting full analysis for ID: ${id}`);
+        
+        // Log period information if provided
+        if (options?.startDate && options?.endDate) {
+            console.log(`[StockAnalysisService] Period-based analysis: ${options.startDate} to ${options.endDate} (${options.periodId})`);
+        }
 
         // 1. Fetch the stock analysis record
         const stockAnalysis = await prisma.stockAnalysis.findUnique({
@@ -70,7 +79,7 @@ export class StockAnalysisService {
 
             // 3. Get existing factor analysis results from DB
             console.log(`[StockAnalysisService] Retrieving factor analysis results`);
-            const analysisResults = await getAnalysisResultsFromDB(id);
+            const analysisResults = await getAnalysisResultsFromDB(id, options);
 
             if (!analysisResults) {
                 throw new AppError("Factor analysis results not available. Please import data first.", 400);

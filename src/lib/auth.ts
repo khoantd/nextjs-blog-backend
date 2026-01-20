@@ -1,10 +1,8 @@
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "./prisma";
 import { UserRole } from "./types";
 import { getGoogleClientId, getGoogleClientSecret } from "./server-auth";
-
 
 // Type assertion for PrismaAdapter compatibility
 const prismaClient = prisma as any;
@@ -36,8 +34,13 @@ if (process.env.NODE_ENV === "development") {
   console.log('Config Source:', configSource);
 }
 
+// authOptions is only used in Next.js frontend, not in Express backend
+// We export it conditionally to avoid ESM import issues during CommonJS compilation
+// The frontend Next.js app will handle the PrismaAdapter import separately
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as any,
+  // Adapter will be set in Next.js frontend where ES modules are supported
+  // For backend, we don't need the adapter since we use JWT tokens directly
+  adapter: undefined as any,
   providers: [
     GoogleProvider({
       clientId: getGoogleClientId() || process.env.GOOGLE_CLIENT_ID!,

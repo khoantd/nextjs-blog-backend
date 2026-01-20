@@ -9,6 +9,15 @@ export interface PriceRecommendation {
   targetUpside: number;
   stopLoss: number;
   timeHorizon: 'short' | 'medium' | 'long';
+  // Short-term movement outlook for the next few trading days
+  shortTermPredictions?: Array<{
+    daysAhead: number; // e.g. 1, 3, 5, 10
+    direction: 'up' | 'down' | 'flat';
+    probability: number; // 0-100 (%)
+    expectedChangePercent: number; // signed %, relative to current price
+    confidence: 'low' | 'medium' | 'high';
+    reasoning: string;
+  }>;
   technicalIndicators: {
     support: number[];
     resistance: number[];
@@ -80,6 +89,7 @@ ANALYSIS REQUIREMENTS:
 4. Include risk management recommendations (stop loss, position sizing considerations)
 5. Provide confidence level based on data quality and pattern strength
 6. Suggest appropriate time horizon for the recommendations
+7. Additionally, provide short-term price movement predictions for the next trading days (1, 3, 5, and 10 days ahead), indicating whether price is more likely to move up, down, or stay relatively flat, with probabilities and expected % moves.
 
 RESPONSE FORMAT (JSON only):
 {
@@ -91,6 +101,40 @@ RESPONSE FORMAT (JSON only):
   "targetUpside": <percentage>,
   "stopLoss": <number>,
   "timeHorizon": "short|medium|long",
+  "shortTermPredictions": [
+    {
+      "daysAhead": 1,
+      "direction": "up|down|flat",
+      "probability": <percentage>, 
+      "expectedChangePercent": <signed_percentage>,
+      "confidence": "low|medium|high",
+      "reasoning": "<short explanation>"
+    },
+    {
+      "daysAhead": 3,
+      "direction": "up|down|flat",
+      "probability": <percentage>, 
+      "expectedChangePercent": <signed_percentage>,
+      "confidence": "low|medium|high",
+      "reasoning": "<short explanation>"
+    },
+    {
+      "daysAhead": 5,
+      "direction": "up|down|flat",
+      "probability": <percentage>, 
+      "expectedChangePercent": <signed_percentage>,
+      "confidence": "low|medium|high",
+      "reasoning": "<short explanation>"
+    },
+    {
+      "daysAhead": 10,
+      "direction": "up|down|flat",
+      "probability": <percentage>, 
+      "expectedChangePercent": <signed_percentage>,
+      "confidence": "low|medium|high",
+      "reasoning": "<short explanation>"
+    }
+  ],
   "technicalIndicators": {
     "support": [<level1>, <level2>],
     "resistance": [<level1>, <level2>],
@@ -223,6 +267,19 @@ export function validatePriceRecommendations(recommendations: PriceRecommendatio
     if (!fund.sentiment || !fund.keyDrivers) return false;
     if (!['positive', 'negative', 'neutral'].includes(fund.sentiment)) return false;
     if (!Array.isArray(fund.keyDrivers)) return false;
+
+    // If short-term predictions are present, validate basic structure but do not require them
+    if (recommendations.shortTermPredictions) {
+      if (!Array.isArray(recommendations.shortTermPredictions)) return false;
+      for (const p of recommendations.shortTermPredictions) {
+        if (typeof p.daysAhead !== "number" || p.daysAhead <= 0) return false;
+        if (!['up', 'down', 'flat'].includes(p.direction)) return false;
+        if (typeof p.probability !== "number" || p.probability < 0 || p.probability > 100) return false;
+        if (typeof p.expectedChangePercent !== "number") return false;
+        if (!['low', 'medium', 'high'].includes(p.confidence)) return false;
+        if (typeof p.reasoning !== "string") return false;
+      }
+    }
     
     return true;
   } catch (error) {

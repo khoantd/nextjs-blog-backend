@@ -61,12 +61,29 @@ export function analyzeStockData(csvFilePath: string) {
   // Load data
   const df = parseCSV(csvFilePath);
 
-  // Ensure Date is parsed and sort by date
+  // Ensure Date is parsed and sort by date, filtering out invalid dates
   const sortedData = df
-    .map(row => ({
-      ...row,
-      Date: new Date(row.Date).toISOString()
-    }))
+    .map(row => {
+      // Check if Date field exists and is not undefined/null
+      if (!row.Date || row.Date === undefined || row.Date === null || row.Date === '') {
+        console.warn(`Invalid date encountered: "${row.Date}" - row missing Date field`);
+        return null;
+      }
+      
+      const dateObj = new Date(row.Date);
+      
+      // Validate date is valid
+      if (isNaN(dateObj.getTime())) {
+        console.warn(`Invalid date encountered: "${row.Date}" - cannot parse as valid date`);
+        return null;
+      }
+      
+      return {
+        ...row,
+        Date: dateObj.toISOString()
+      };
+    })
+    .filter((row): row is StockData => row !== null)
     .sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
 
   // Calculate % change day by day (close to close)
@@ -95,6 +112,58 @@ export function analyzeStockData(csvFilePath: string) {
   });
 
   return tx;
+}
+
+/**
+ * Get all stock data without filtering by percentage change (for period analysis)
+ */
+export function getAllStockData(csvFilePath: string) {
+  // Load data
+  const df = parseCSV(csvFilePath);
+
+  // Ensure Date is parsed and sort by date, filtering out invalid dates
+  const sortedData = df
+    .map(row => {
+      // Check if Date field exists and is not undefined/null
+      if (!row.Date || row.Date === undefined || row.Date === null || row.Date === '') {
+        console.warn(`Invalid date encountered: "${row.Date}" - row missing Date field`);
+        return null;
+      }
+      
+      const dateObj = new Date(row.Date);
+      
+      // Validate date is valid
+      if (isNaN(dateObj.getTime())) {
+        console.warn(`Invalid date encountered: "${row.Date}" - cannot parse as valid date`);
+        return null;
+      }
+      
+      return {
+        ...row,
+        Date: dateObj.toISOString()
+      };
+    })
+    .filter((row): row is StockData => row !== null)
+    .sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
+
+  // Calculate % change day by day (close to close)
+  const closePrices = sortedData.map(row => row.Close);
+  const pctChanges = calculatePctChange(closePrices);
+
+  const dataWithPctChange: ProcessedData[] = sortedData.map((row, index) => ({
+    ...row,
+    pct_change: pctChanges[index]
+  }));
+
+  // Include ALL days (not just significant movements) for period analysis
+  const allTransactions = dataWithPctChange
+    .filter(row => !isNaN(row.pct_change)) // Only filter out invalid pct_change
+    .map((row, index): Transaction => ({
+      ...row,
+      Tx: index + 1
+    }));
+
+  return allTransactions;
 }
 
 // Example usage:

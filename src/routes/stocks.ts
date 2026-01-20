@@ -59,11 +59,20 @@ router.get('/price', async (req, res) => {
         return res.json(priceData);
 
     } catch (error: any) {
-        console.error("Error fetching stock price:", error);
-        // Return appropriate error message based on service error
-        if (error.message.includes('No data found')) {
+        // Handle specific error types with appropriate status codes
+        if (error.code === 'INVALID_SYMBOL_TYPE' || error.statusCode === 400) {
+            return res.status(400).json({ 
+                error: error.message || "Invalid symbol type. This symbol may not be a stock or ETF.",
+                code: 'INVALID_SYMBOL_TYPE'
+            });
+        }
+        
+        if (error.message?.includes('No data found')) {
             return res.status(404).json({ error: error.message });
         }
+        
+        // Only log unexpected errors
+        console.error("Error fetching stock price:", error);
         return res.status(500).json({ error: "Failed to fetch stock price" });
     }
 });

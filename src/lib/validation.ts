@@ -19,6 +19,38 @@ export const userRoleUpdateSchema = z.object({
   role: z.enum(['viewer', 'editor', 'admin'])
 });
 
+// Authentication validation schemas
+export const registerSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  name: z.string().min(1, 'Name is required').max(100, 'Name must be less than 100 characters').optional(),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const setPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string().min(8, 'Password confirmation is required').optional(),
+}).refine((data) => {
+  // If confirmPassword is provided, it must match password
+  if (data.confirmPassword !== undefined) {
+    return data.password === data.confirmPassword;
+  }
+  return true;
+}, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+// Type inference from schemas
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>;
+
 // Workflow validation schemas
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, 'Workflow name is required').max(100),
