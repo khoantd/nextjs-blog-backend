@@ -15,6 +15,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "migrate:pct-change": "tsx scripts/migrate-pct-change.ts",
+    "update:min-pct-change": "tsx scripts/update-min-pct-change.ts",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "jest",
     "docker:build": "./scripts/build-docker.sh",

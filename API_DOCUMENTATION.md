@@ -716,6 +716,67 @@ Fetch CSV data from vnstock API (Vietnamese stocks only).
 - `503` - Vnstock API not configured
 - `500` - Server error
 
+### POST /api/stock-analyses/import-from-vnstock
+
+Create a new stock analysis and import data from vnstock API in one operation.
+
+**Authentication:** Required (Viewer role minimum)
+
+**Request Body:**
+```json
+{
+  "symbol": "VCI",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "name": "Vietnam Capital Investment",
+  "market": "VN",
+  "source": "vci",
+  "interval": "D"
+}
+```
+
+**Required Fields:**
+- `symbol` (string) - Stock symbol/ticket (e.g., VCI, FPT, VIC)
+- `start_date` (string) - Start date in YYYY-MM-DD or DD-MM-YYYY format
+- `end_date` (string) - End date in YYYY-MM-DD or DD-MM-YYYY format
+
+**Optional Fields:**
+- `name` (string) - Company name
+- `market` (string) - Market identifier, defaults to "VN"
+- `source` (string) - Data source: "vci" | "tcbs" | "msn", defaults to "vci"
+- `interval` (string) - Data interval: "D" | "1W" | "1M" | "1m" | "5m" | "15m" | "30m" | "1H", defaults to "D"
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "message": "Successfully imported data from vnstock API for VCI",
+  "data": {
+    "stockAnalysis": {
+      "id": 1,
+      "symbol": "VCI",
+      "name": "Vietnam Capital Investment",
+      "market": "VN",
+      "status": "completed",
+      "results": {...}
+    },
+    "dataPoints": 252,
+    "dateRange": {
+      "start": "2024-01-01",
+      "end": "2024-12-31"
+    },
+    "source": "vnstock"
+  }
+}
+```
+
+**Error Responses:**
+- `400` - Missing required fields, invalid date format, or invalid date range
+- `401` - Unauthorized
+- `404` - No data returned from vnstock API
+- `503` - Vnstock API not configured
+- `500` - Server error
+
 ### POST /api/stock-analyses/:id/analyze
 
 Trigger full analysis (factor analysis + AI insights + price recommendations).
@@ -799,7 +860,7 @@ Regenerate analysis for a specific date period.
 
 ### PATCH /api/stock-analyses/:id
 
-Update stock analysis (favorite status, market).
+Update stock analysis (favorite status, market, Min Change threshold).
 
 **Authentication:** Required (Viewer role minimum)
 
@@ -807,13 +868,15 @@ Update stock analysis (favorite status, market).
 ```json
 {
   "favorite": true,
-  "market": "US"
+  "market": "US",
+  "minPctChange": 3.0
 }
 ```
 
 **Fields:**
 - `favorite` (optional) - Boolean to toggle favorite status
 - `market` (optional) - Market code: "US", "VN", or null
+- `minPctChange` (optional) - Positive number representing the minimum percentage change threshold used in factor analysis (default: 4.0)
 
 **Response (200):**
 ```json
@@ -824,6 +887,7 @@ Update stock analysis (favorite status, market).
       "symbol": "AAPL",
       "favorite": true,
       "market": "US",
+      "minPctChange": 3.0,
       "updatedAt": "2025-01-15T10:30:00.000Z"
     }
   }
@@ -834,6 +898,45 @@ Update stock analysis (favorite status, market).
 - `400` - Invalid market value or no valid fields to update
 - `401` - Unauthorized
 - `404` - Stock analysis not found
+- `500` - Server error
+
+### POST /api/stock-analyses/bulk-update-min-pct-change
+
+Bulk update the `minPctChange` (Min Change threshold) for multiple stock analyses by symbol.
+
+**Authentication:** Required (Viewer role minimum)
+
+**Request Body:**
+```json
+{
+  "symbols": ["SNAP", "AAPL"],
+  "minPctChange": 3.0
+}
+```
+
+**Fields:**
+- `symbols` (required) - Array of stock symbols to update (1–500 items)
+- `minPctChange` (optional) - Positive number for the new Min Change threshold (defaults to 3.0 if omitted)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Updated minPctChange to 3.0 for 2 analysis(es).",
+  "data": {
+    "targetMinPctChange": 3.0,
+    "totalMatched": 3,
+    "totalUpdated": 2,
+    "totalSkipped": 1,
+    "symbols": ["SNAP", "AAPL"]
+  }
+}
+```
+
+**Error Responses:**
+- `400` - Invalid input (validation failed)
+- `401` - Unauthorized
+- `404` - No stock analyses found for provided symbols
 - `500` - Server error
 
 ### DELETE /api/stock-analyses/:id

@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "b233e9d4-a30b-4506-9f60-144491152a79",
         "name": "Next.js Blog Backend",
-        "description": "API collection for the Next.js blog backend application.",
+        "description": "API collection for the Next.js blog backend application.\n\n## Authentication\n\nThis collection uses **Bearer Token Authentication**. All protected endpoints require a valid NextAuth JWT token.\n\n### Getting a Token\n\n1. **Development Token** (dev only):\n   - Use the \"Get Dev Token\" request in the Auth folder\n   - This will return a token you can use for testing\n   - Copy the token and set it in the `token` collection variable\n\n2. **Production Token**:\n   - Extract the session token from NextAuth cookies\n   - Or use a NextAuth session token directly\n\n### Setting the Token\n\n1. Click on the collection name in the sidebar\n2. Go to the \"Variables\" tab\n3. Set the `token` variable with your Bearer token\n4. The token will be automatically included in all requests\n\n### Alternative: Per-Request Authentication\n\nYou can also override the collection-level auth for individual requests:\n- Go to the request's \"Authorization\" tab\n- Select \"Bearer Token\" type\n- Enter your token directly\n\n## Base URL\n\nSet the `base_url` variable to match your environment:\n- Development: `http://localhost:3001`\n- Production: `http://72.60.233.159:3050` or your production URL",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
@@ -69,6 +69,23 @@
                 },
                 {
                     "name": "Get Dev Token",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "if (pm.response.code === 200) {",
+                                    "    const response = pm.response.json();",
+                                    "    if (response.token) {",
+                                    "        pm.collectionVariables.set('token', response.token);",
+                                    "        console.log('Token saved to collection variable: token');",
+                                    "    }",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -82,7 +99,8 @@
                                 "auth",
                                 "dev-token"
                             ]
-                        }
+                        },
+                        "description": "Get a development JWT token for testing. The token will be automatically saved to the collection variable `token` if the request succeeds."
                     },
                     "response": []
                 }
@@ -224,6 +242,84 @@
                     "response": []
                 },
                 {
+                    "name": "Update Analysis (PATCH)",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"minPctChange\": 3.0,\n  \"regenerate\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1"
+                            ]
+                        },
+                        "description": "Update stock analysis fields (favorite status, market, and/or minPctChange).\n\n**Optional Fields:**\n- `favorite` - Boolean to toggle favorite status\n- `market` - Market identifier: \"US\" | \"VN\" | null\n- `minPctChange` - Positive number for the minimum percentage change threshold\n- `regenerate` - Boolean. If true, regenerates factor data so historical results reflect the new minPctChange threshold.\n\n**Note:** At least one field must be provided (or set `regenerate=true`)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Bulk Update MinPctChange",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"symbols\": [\"SNAP\", \"AAPL\"],\n  \"minPctChange\": 3.0,\n  \"regenerate\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/bulk-update-min-pct-change",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "bulk-update-min-pct-change"
+                            ]
+                        },
+                        "description": "Bulk update the minPctChange (Min Change threshold) for multiple stock analyses by symbol.\n\n**Request Body:**\n- `symbols` (required) - Array of stock symbols to update (1–500)\n- `minPctChange` (optional) - Positive number for the new Min Change threshold (defaults to 3.0 if omitted)\n- `regenerate` (optional) - Boolean. If true, regenerates factor data so historical results reflect the new minPctChange threshold."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Analysis",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1"
+                            ]
+                        },
+                        "description": "Delete a stock analysis and all associated data.\n\n**Requirements:**\n- Admin role required\n- Authentication required\n\n**What gets deleted:**\n- Daily factor data\n- Daily scores\n- Factor tables\n- Earnings data (by symbol)\n- CSV file (if exists)\n- Stock analysis record\n\n**Response:**\n```json\n{\n    \"success\": true,\n    \"message\": \"Stock analysis deleted successfully\"\n}\n```\n\n**Error Responses:**\n- `400` - Invalid stock analysis ID\n- `401` - Unauthorized (not authenticated)\n- `403` - Insufficient permissions (admin role required)\n- `404` - Stock analysis not found\n- `500` - Server error"
+                    },
+                    "response": []
+                },
+                {
                     "name": "Get Daily Factor Data",
                     "request": {
                         "method": "GET",
@@ -284,6 +380,594 @@
                     "response": []
                 },
                 {
+                    "name": "Get Predictions by ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1/predictions?days=5&futureDays=7&orderBy=date&order=desc",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort field: date, score, confidence, or prediction"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "desc",
+                                    "description": "Sort order: asc or desc"
+                                },
+                                {
+                                    "key": "dateFrom",
+                                    "value": "",
+                                    "description": "Filter by date from (YYYY-MM-DD)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "dateTo",
+                                    "value": "",
+                                    "description": "Filter by date to (YYYY-MM-DD)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "",
+                                    "description": "Filter by minimum score (0-100)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "maxScore",
+                                    "value": "",
+                                    "description": "Filter by maximum score (0-100)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "prediction",
+                                    "value": "",
+                                    "description": "Filter by prediction level: HIGH_PROBABILITY, MODERATE, LOW_PROBABILITY",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "minConfidence",
+                                    "value": "",
+                                    "description": "Filter by minimum confidence (0-100, percentage)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "maxConfidence",
+                                    "value": "",
+                                    "description": "Filter by maximum confidence (0-100, percentage)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "days",
+                                    "value": "5",
+                                    "description": "Number of recent days to use for generating predictions (1-50, default: 5). The API fetches 210 days of lookback data for accurate technical indicators (MA200), then generates predictions for the most recent N days (up to 4 days by default)."
+                                },
+                                {
+                                    "key": "futureDays",
+                                    "value": "7",
+                                    "description": "Number of future days to generate predictions for (0-30, default: 0). Uses most recent factor data as baseline. Set to 0 to disable future predictions."
+                                }
+                            ]
+                        },
+                        "description": "Get current market predictions based on recent factor data for a specific stock analysis.\n\n**How it works:**\n1. Validates stock analysis exists and user has access\n2. Fetches factor data with lookback (210 days for MA200 calculation)\n3. Generates predictions for the most recent days (up to 4 days by default)\n4. **NEW: Generates future predictions** if `futureDays` > 0 (uses most recent factors as baseline)\n5. Applies filters in-memory\n6. Returns sorted predictions\n\n**Implementation Notes:**\n- Uses shared prediction generation logic (`generatePredictionsForAnalysis()`)\n- Type-safe factor extraction with proper StockFactor types\n- Consistent error handling with detailed error messages\n- Configurable constants: LOOKBACK_NEEDED (210), MAX_DAYS_TO_PROCESS (4), MAX_FUTURE_DAYS (30)\n- Handles multiple date formats (YYYY-MM-DD, MM/DD/YYYY)\n- Future predictions use most recent factor data as baseline\n\n**Query Parameters:**\n- `days` (optional, default: 5) - Number of recent days to fetch data for (1-50). Note: Predictions are generated for up to 4 most recent days.\n- `futureDays` (optional, default: 0) - **NEW:** Number of future days to generate predictions for (0-30). Uses most recent factor data as baseline. Set to 0 to disable future predictions.\n- `orderBy` (optional, default: \"date\") - Sort field: \"date\", \"score\", \"confidence\", or \"prediction\"\n- `order` (optional, default: \"desc\") - Sort order: \"asc\" or \"desc\"\n- `dateFrom` (optional) - Filter by date from (YYYY-MM-DD)\n- `dateTo` (optional) - Filter by date to (YYYY-MM-DD)\n- `minScore` (optional) - Filter by minimum score (0-100)\n- `maxScore` (optional) - Filter by maximum score (0-100)\n- `prediction` (optional) - Filter by prediction level: \"HIGH_PROBABILITY\", \"MODERATE\", \"LOW_PROBABILITY\"\n- `minConfidence` (optional) - Filter by minimum confidence (0-1)\n- `maxConfidence` (optional) - Filter by maximum confidence (0-1)\n\n**Response:**\n```json\n{\n    \"data\": {\n        \"predictions\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"date\": \"2024-01-15\",\n                \"score\": 75,\n                \"prediction\": \"HIGH_PROBABILITY\",\n                \"confidence\": 0.85,\n                \"aboveThreshold\": true,\n                \"isFuture\": false,\n                \"activeFactors\": [\n                    {\n                        \"factor\": \"volume_spike\",\n                        \"name\": \"Volume Spike\",\n                        \"description\": \"Trading volume exceeds 1.5x the 20-day moving average\",\n                        \"weight\": 0.25\n                    }\n                ],\n                \"recommendations\": [\"Monitor for continued volume support\"],\n                \"threshold\": 45,\n                \"interpretation\": \"AAPL shows high probability of strong upward movement based on current factors\"\n            },\n            {\n                \"symbol\": \"AAPL\",\n                \"date\": \"2024-01-16\",\n                \"score\": 75,\n                \"prediction\": \"HIGH_PROBABILITY\",\n                \"confidence\": 0.85,\n                \"aboveThreshold\": true,\n                \"isFuture\": true,\n                \"activeFactors\": [\n                    {\n                        \"factor\": \"volume_spike\",\n                        \"name\": \"Volume Spike\",\n                        \"description\": \"Trading volume exceeds 1.5x the 20-day moving average\",\n                        \"weight\": 0.25\n                    }\n                ],\n                \"recommendations\": [\"Monitor for continued volume support\"],\n                \"threshold\": 45,\n                \"interpretation\": \"AAPL shows high probability of strong upward movement based on current factors\"\n            }\n        ],\n        \"warnings\": [\n            {\n                \"date\": \"2024-01-14\",\n                \"error\": \"Error message if prediction generation failed for a specific day\"\n            }\n        ]\n    }\n}\n```\n\n**Prediction Levels:**\n- `HIGH_PROBABILITY` - Score above threshold (default: 45%)\n- `MODERATE` - Score between 70% and 100% of threshold\n- `LOW_PROBABILITY` - Score below 70% of threshold\n\n**Future Predictions:**\n- Future predictions are marked with `isFuture: true`\n- Uses most recent factor data as baseline (assumes factors persist)\n- Maximum 30 days into the future\n- Note: Future predictions assume current market conditions continue\n\n**Error Responses:**\n- `400` - Invalid filter parameter, days parameter out of range, or futureDays parameter out of range\n- `401` - Unauthorized\n- `404` - Stock analysis not found\n- `500` - Server error\n\n**Notes:**\n- Predictions are generated dynamically from factor data\n- Each prediction includes active factors, recommendations, and interpretation\n- Errors for individual days are collected and returned as warnings (non-blocking)\n- Requires factor data to be available (run factor analysis first if needed)\n- **Future predictions:** Use `futureDays=7` to get predictions for the next 7 days"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Predictions by Symbol",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/by-symbol/AAPL/predictions?days=5&futureDays=7&market=US&orderBy=date&order=desc",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "by-symbol",
+                                "AAPL",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "market",
+                                    "value": "US",
+                                    "description": "Market identifier: US or VN (optional, helps disambiguate symbols)"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort field: date, score, confidence, or prediction"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "desc",
+                                    "description": "Sort order: asc or desc"
+                                },
+                                {
+                                    "key": "dateFrom",
+                                    "value": "",
+                                    "description": "Filter by date from (YYYY-MM-DD)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "dateTo",
+                                    "value": "",
+                                    "description": "Filter by date to (YYYY-MM-DD)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "",
+                                    "description": "Filter by minimum score (0-100)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "maxScore",
+                                    "value": "",
+                                    "description": "Filter by maximum score (0-100)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "prediction",
+                                    "value": "",
+                                    "description": "Filter by prediction level: HIGH_PROBABILITY, MODERATE, LOW_PROBABILITY",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "minConfidence",
+                                    "value": "",
+                                    "description": "Filter by minimum confidence (0-100, percentage)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "maxConfidence",
+                                    "value": "",
+                                    "description": "Filter by maximum confidence (0-100, percentage)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "days",
+                                    "value": "5",
+                                    "description": "Number of recent days to use for generating predictions (1-50, default: 5). The API fetches 210 days of lookback data for accurate technical indicators (MA200), then generates predictions for the most recent N days (up to 4 days by default)."
+                                },
+                                {
+                                    "key": "futureDays",
+                                    "value": "7",
+                                    "description": "Number of future days to generate predictions for (0-30, default: 0). Uses most recent factor data as baseline. Set to 0 to disable future predictions."
+                                }
+                            ]
+                        },
+                        "description": "Get current market predictions by stock symbol/ticker.\n\n**How it works:**\n1. Finds the latest stock analysis for the given symbol (optionally filtered by market)\n2. Validates stock analysis exists and user has access\n3. Fetches factor data with lookback (210 days for MA200 calculation)\n4. Generates predictions for the most recent days (up to 4 days by default)\n5. **NEW: Generates future predictions** if `futureDays` > 0 (uses most recent factors as baseline)\n6. Applies filters in-memory\n7. Returns sorted predictions with symbol and analysisId\n\n**Implementation Notes:**\n- Uses the same shared prediction generation logic as the ID-based endpoint\n- Type-safe factor extraction with proper StockFactor types\n- Consistent error handling with detailed error messages\n- Configurable constants: LOOKBACK_NEEDED (210), MAX_DAYS_TO_PROCESS (4), MAX_FUTURE_DAYS (30)\n- Handles multiple date formats (YYYY-MM-DD, MM/DD/YYYY)\n- Future predictions use most recent factor data as baseline\n\n**Path Parameters:**\n- `symbol` (required) - Stock symbol/ticker (e.g., AAPL, SNAP, VIC)\n\n**Query Parameters:**\n- `days` (optional, default: 5) - Number of recent days to fetch data for (1-50). Note: Predictions are generated for up to 4 most recent days.\n- `futureDays` (optional, default: 0) - **NEW:** Number of future days to generate predictions for (0-30). Uses most recent factor data as baseline. Set to 0 to disable future predictions.\n- `market` (optional) - Market identifier: \"US\" or \"VN\" (helps disambiguate symbols)\n- `orderBy` (optional, default: \"date\") - Sort field: \"date\", \"score\", \"confidence\", or \"prediction\"\n- `order` (optional, default: \"desc\") - Sort order: \"asc\" or \"desc\"\n- `dateFrom` (optional) - Filter by date from (YYYY-MM-DD)\n- `dateTo` (optional) - Filter by date to (YYYY-MM-DD)\n- `minScore` (optional) - Filter by minimum score (0-100)\n- `maxScore` (optional) - Filter by maximum score (0-100)\n- `prediction` (optional) - Filter by prediction level: \"HIGH_PROBABILITY\", \"MODERATE\", \"LOW_PROBABILITY\"\n- `minConfidence` (optional) - Filter by minimum confidence (0-1)\n- `maxConfidence` (optional) - Filter by maximum confidence (0-1)\n\n**Response:**\n```json\n{\n    \"data\": {\n        \"predictions\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"date\": \"2024-01-15\",\n                \"score\": 75,\n                \"prediction\": \"HIGH_PROBABILITY\",\n                \"confidence\": 0.85,\n                \"aboveThreshold\": true,\n                \"isFuture\": false,\n                \"activeFactors\": [\n                    {\n                        \"factor\": \"volume_spike\",\n                        \"name\": \"Volume Spike\",\n                        \"description\": \"Trading volume exceeds 1.5x the 20-day moving average\",\n                        \"weight\": 0.25\n                    }\n                ],\n                \"recommendations\": [\"Monitor for continued volume support\"],\n                \"threshold\": 45,\n                \"interpretation\": \"AAPL shows high probability of strong upward movement based on current factors\"\n            },\n            {\n                \"symbol\": \"AAPL\",\n                \"date\": \"2024-01-16\",\n                \"score\": 75,\n                \"prediction\": \"HIGH_PROBABILITY\",\n                \"confidence\": 0.85,\n                \"aboveThreshold\": true,\n                \"isFuture\": true,\n                \"activeFactors\": [\n                    {\n                        \"factor\": \"volume_spike\",\n                        \"name\": \"Volume Spike\",\n                        \"description\": \"Trading volume exceeds 1.5x the 20-day moving average\",\n                        \"weight\": 0.25\n                    }\n                ],\n                \"recommendations\": [\"Monitor for continued volume support\"],\n                \"threshold\": 45,\n                \"interpretation\": \"AAPL shows high probability of strong upward movement based on current factors\"\n            }\n        ],\n        \"symbol\": \"AAPL\",\n        \"analysisId\": 1,\n        \"warnings\": [\n            {\n                \"date\": \"2024-01-14\",\n                \"error\": \"Error message if prediction generation failed for a specific day\"\n            }\n        ]\n    }\n}\n```\n\n**Prediction Levels:**\n- `HIGH_PROBABILITY` - Score above threshold (default: 45%)\n- `MODERATE` - Score between 70% and 100% of threshold\n- `LOW_PROBABILITY` - Score below 70% of threshold\n\n**Future Predictions:**\n- Future predictions are marked with `isFuture: true`\n- Uses most recent factor data as baseline (assumes factors persist)\n- Maximum 30 days into the future\n- Note: Future predictions assume current market conditions continue\n\n**Error Responses:**\n- `400` - Invalid filter parameter, days parameter out of range, futureDays parameter out of range, or symbol not provided\n- `401` - Unauthorized\n- `404` - Stock analysis not found for the given symbol\n- `500` - Server error\n\n**Notes:**\n- Predictions are generated dynamically from factor data\n- Each prediction includes active factors, recommendations, and interpretation\n- Errors for individual days are collected and returned as warnings (non-blocking)\n- Requires factor data to be available (run factor analysis first if needed)\n- Returns the symbol and analysisId for reference\n- **Future predictions:** Use `futureDays=7` to get predictions for the next 7 days"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Future Predictions (Next 7 Days)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/by-symbol/AAPL/predictions?futureDays=7&orderBy=date&order=asc",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "by-symbol",
+                                "AAPL",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "futureDays",
+                                    "value": "7",
+                                    "description": "Generate predictions for next 7 days"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort by date"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "asc",
+                                    "description": "Ascending order (oldest to newest)"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Get future predictions for the next 7 days**\n\nThis request demonstrates how to use the `futureDays` parameter to generate predictions for upcoming trading days.\n\n**Key Points:**\n- `futureDays=7` generates predictions for the next 7 days\n- Uses most recent factor data as baseline\n- Future predictions are marked with `isFuture: true`\n- Results sorted by date ascending (tomorrow first)\n\n**Example URLs:**\n- Next 7 days: `?futureDays=7`\n- Next 30 days: `?futureDays=30`\n- Historical + Future: `?days=5&futureDays=7`\n\n**Response includes:**\n- Historical predictions (if any)\n- Future predictions with `isFuture: true` flag\n- All predictions sorted by date\n\n**Note:** Future predictions assume current market conditions persist. Factors are not adjusted for trends or external events."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Scan High Probability (Day Ahead)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/scan-high-probability?market=US&status=completed&futureDays=1&days=10&threshold=0.45&minScore=0.45&minConfidence=70&format=text",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "scan-high-probability"
+                            ],
+                            "query": [
+                                {
+                                    "key": "market",
+                                    "value": "US",
+                                    "description": "Optional market filter (US or VN)",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "completed",
+                                    "description": "Optional status filter (comma-separated). Defaults to completed."
+                                },
+                                {
+                                    "key": "futureDays",
+                                    "value": "1",
+                                    "description": "Number of business days ahead to scan (1-30, default: 1)"
+                                },
+                                {
+                                    "key": "days",
+                                    "value": "10",
+                                    "description": "Number of historical days to use for baseline factor extraction (1-50, default: 10). More days increase chance of finding active factors."
+                                },
+                                {
+                                    "key": "threshold",
+                                    "value": "0.45",
+                                    "description": "Score threshold for HIGH_PROBABILITY classification (0-1, default: 0.45). Predictions with score >= threshold are classified as HIGH_PROBABILITY."
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "0.45",
+                                    "description": "Optional minimum score threshold (note: current score scale is ~0-1)"
+                                },
+                                {
+                                    "key": "minConfidence",
+                                    "value": "70",
+                                    "description": "Optional minimum confidence threshold (0-100, percentage)"
+                                },
+                                {
+                                    "key": "format",
+                                    "value": "text",
+                                    "description": "When set to 'text', returns a Vietnamese formatted report as text/plain"
+                                }
+                            ]
+                        },
+                        "description": "Scan **all symbols** (latest analysis per symbol) and return only those with a **HIGH_PROBABILITY** prediction for the selected day ahead.\n\n**How it works:**\n1. Fetches all stock analyses (defaults to `status=completed`)\n2. Deduplicates by symbol (keeps latest `updatedAt`)\n3. Uses `days` parameter to find baseline historical data with active factors (default: 10 days)\n4. Generates future predictions using `futureDays` (business days, skips weekends)\n5. Uses `threshold` to classify predictions (default: 0.45 = 45%)\n6. Selects the target day-ahead prediction\n7. Filters to `HIGH_PROBABILITY` and applies optional `minScore`/`minConfidence`\n\n**Common uses:**\n- Tomorrow scan: `futureDays=1`\n- Next 3 business days: `futureDays=3`\n- More historical context: `days=20` (increases chance of finding active factors)\n- Stricter classification: `threshold=0.6` (only scores >= 60% are HIGH_PROBABILITY)\n- More lenient: `threshold=0.3` (scores >= 30% are HIGH_PROBABILITY)\n- Tighten results: `minScore=0.6&minConfidence=80`\n\n**Parameters:**\n- `days`: Number of historical days to use for baseline (1-50, default: 10). More days = better chance of finding active factors.\n- `futureDays`: Business days ahead to predict (1-30, default: 1)\n- `threshold`: Score threshold for HIGH_PROBABILITY (0-1, default: 0.45). Lower = more lenient, higher = stricter.\n\n**Response includes:**\n- `data.symbols[]`: symbol, market, stockAnalysisId, and full prediction payload\n- `data.summary`: totals scanned and matched\n- `data.warnings` (optional): analyses that failed prediction generation (non-blocking)"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get High-Probability Predictions Only",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1/predictions?prediction=HIGH_PROBABILITY&minScore=0.45&minConfidence=50&orderBy=score&order=desc",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "prediction",
+                                    "value": "HIGH_PROBABILITY",
+                                    "description": "Filter by prediction level"
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "0.45",
+                                    "description": "Minimum score threshold"
+                                },
+                                {
+                                    "key": "minConfidence",
+                                    "value": "50",
+                                    "description": "Minimum confidence (0-100, percentage)"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "score",
+                                    "description": "Sort by score"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "desc",
+                                    "description": "Descending order (highest first)"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Get only HIGH_PROBABILITY predictions with high confidence**\n\nThis request filters predictions to show only:\n- HIGH_PROBABILITY level predictions\n- Score >= 0.45 (45%)\n- Confidence >= 50% (50)\n- Sorted by score (highest first)\n\n**Use Cases:**\n- Find the strongest signals\n- Identify top opportunities\n- Filter out low-confidence predictions\n\n**Common Filters:**\n- `prediction=HIGH_PROBABILITY` - Only high-probability predictions\n- `minScore=0.50` - Higher score threshold\n- `minConfidence=70` - Higher confidence threshold"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Predictions by Date Range",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1/predictions?dateFrom=2025-01-01&dateTo=2025-01-31&minScore=0.50&orderBy=date&order=asc",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "dateFrom",
+                                    "value": "2025-01-01",
+                                    "description": "Start date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "dateTo",
+                                    "value": "2025-01-31",
+                                    "description": "End date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "0.50",
+                                    "description": "Minimum score filter"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort by date"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "asc",
+                                    "description": "Ascending order (oldest first)"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Get predictions for a specific date range**\n\nThis request retrieves predictions for January 2025:\n- Date range: 2025-01-01 to 2025-01-31\n- Minimum score: 0.50 (50%)\n- Sorted chronologically\n\n**Use Cases:**\n- Analyze historical predictions\n- Review monthly performance\n- Compare predictions across time periods\n\n**Date Format:**\n- Use ISO 8601 format: YYYY-MM-DD\n- Both dates are inclusive"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Today's Prediction",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/by-symbol/AAPL/predictions?days=1&orderBy=date&order=desc&market=US",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "by-symbol",
+                                "AAPL",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "days",
+                                    "value": "1",
+                                    "description": "Get only the most recent day"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort by date"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "desc",
+                                    "description": "Most recent first"
+                                },
+                                {
+                                    "key": "market",
+                                    "value": "US",
+                                    "description": "Market identifier"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Get today's prediction for a symbol**\n\nThis request gets the most recent prediction:\n- Uses `days=1` to get only the latest day\n- Sorted by date descending (most recent first)\n- Returns the first result (today's prediction)\n\n**Use Cases:**\n- Quick check of current prediction\n- Daily monitoring\n- Real-time decision making\n\n**Note:**\n- Returns the most recent available prediction\n- May be historical if no prediction exists for today"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Weekly Forecast (7 Days)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/by-symbol/AAPL/predictions?futureDays=7&minScore=0.45&prediction=HIGH_PROBABILITY&orderBy=date&order=asc&market=US",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "by-symbol",
+                                "AAPL",
+                                "predictions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "futureDays",
+                                    "value": "7",
+                                    "description": "Generate predictions for next 7 days"
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "0.45",
+                                    "description": "Minimum score threshold"
+                                },
+                                {
+                                    "key": "prediction",
+                                    "value": "HIGH_PROBABILITY",
+                                    "description": "Only high-probability predictions"
+                                },
+                                {
+                                    "key": "orderBy",
+                                    "value": "date",
+                                    "description": "Sort by date"
+                                },
+                                {
+                                    "key": "order",
+                                    "value": "asc",
+                                    "description": "Ascending (tomorrow first)"
+                                },
+                                {
+                                    "key": "market",
+                                    "value": "US",
+                                    "description": "Market identifier"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Get weekly forecast (next 7 days)**\n\nThis request generates predictions for the next 7 business days:\n- `futureDays=7` generates 7 days ahead\n- Filters to HIGH_PROBABILITY only\n- Minimum score: 0.45\n- Sorted chronologically (tomorrow first)\n\n**Use Cases:**\n- Weekly planning\n- Short-term trading decisions\n- Identifying upcoming opportunities\n\n**Future Predictions:**\n- Uses most recent factor data as baseline\n- Marked with `isFuture: true`\n- Assumes current market conditions persist\n- Maximum 30 days ahead"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Scan High Probability (30 Days Ahead)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/scan-high-probability?status=completed&futureDays=30&days=10&threshold=0.45&minScore=0.45&minConfidence=50&format=json",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "scan-high-probability"
+                            ],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "completed",
+                                    "description": "Only completed analyses"
+                                },
+                                {
+                                    "key": "futureDays",
+                                    "value": "30",
+                                    "description": "Scan 30 days ahead"
+                                },
+                                {
+                                    "key": "days",
+                                    "value": "10",
+                                    "description": "Number of historical days to use for baseline factor extraction (1-50, default: 10). More days increase chance of finding active factors."
+                                },
+                                {
+                                    "key": "threshold",
+                                    "value": "0.45",
+                                    "description": "Score threshold for HIGH_PROBABILITY classification (0-1, default: 0.45). Predictions with score >= threshold are classified as HIGH_PROBABILITY."
+                                },
+                                {
+                                    "key": "minScore",
+                                    "value": "0.45",
+                                    "description": "Minimum score threshold"
+                                },
+                                {
+                                    "key": "minConfidence",
+                                    "value": "50",
+                                    "description": "Minimum confidence (0-100, percentage)"
+                                },
+                                {
+                                    "key": "format",
+                                    "value": "json",
+                                    "description": "JSON format (use 'text' for Vietnamese report)"
+                                }
+                            ]
+                        },
+                        "description": "**Example: Scan all symbols for high-probability predictions 30 days ahead**\n\nThis request scans all completed stock analyses:\n- Uses `days=10` to find baseline historical data with active factors\n- Uses `threshold=0.45` to classify HIGH_PROBABILITY (scores >= 45%)\n- Generates predictions 30 business days ahead\n- Filters to HIGH_PROBABILITY only\n- Minimum score: 0.45\n- Minimum confidence: 50%\n- Returns JSON format\n\n**Use Cases:**\n- Monthly opportunity scanning\n- Portfolio planning\n- Identifying long-term signals\n\n**Parameters:**\n- `days`: Historical days for baseline (default: 10). Increase to 20-30 for better factor detection.\n- `futureDays`: Business days ahead to predict (default: 1)\n- `threshold`: Score threshold for HIGH_PROBABILITY (default: 0.45). Adjust to change classification strictness.\n\n**Threshold Examples:**\n- `threshold=0.3` - More lenient (30%+ = HIGH_PROBABILITY)\n- `threshold=0.45` - Default (45%+ = HIGH_PROBABILITY)\n- `threshold=0.6` - Stricter (60%+ = HIGH_PROBABILITY)\n\n**Response Formats:**\n- `format=json` - Structured JSON response\n- `format=text` - Vietnamese formatted text report\n\n**Note:**\n- Scans all symbols (deduplicated by latest analysis)\n- Returns symbols with HIGH_PROBABILITY predictions\n- Includes full prediction details\n- If all predictions show score 0.000, try increasing `days` parameter\n- Adjust `threshold` to control how many predictions qualify as HIGH_PROBABILITY"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Simulate Prices (by ID)",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"initialPrice\": 150.25,\n    \"timeHorizon\": 30,\n    \"factorWeights\": {\n        \"volume_spike\": 0.30,\n        \"market_up\": 0.25\n    },\n    \"threshold\": 0.50,\n    \"factorStates\": {\n        \"volume_spike\": true,\n        \"market_up\": true,\n        \"break_ma50\": false\n    }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1/simulate",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1",
+                                "simulate"
+                            ]
+                        },
+                        "description": "Simulate predicted prices for an existing stock analysis.\n\n**How it works:**\n1. Uses historical factor data from the stock analysis\n2. Applies adjustable parameters (factor weights, threshold, factor states)\n3. Generates price path using hybrid approach (prediction scores + factor-based + historical patterns)\n4. Creates multiple scenarios (optimistic, pessimistic, base case)\n5. Calculates confidence intervals\n6. Returns comprehensive simulation results\n\n**Required Parameters:**\n- `initialPrice` (number) - Starting/current price for simulation\n- `timeHorizon` (integer, 1-365) - Number of days to simulate\n\n**Optional Parameters:**\n- `factorWeights` (object) - Override default factor weights\n  - Example: `{\"volume_spike\": 0.30, \"market_up\": 0.25}`\n- `threshold` (number, 0-1) - Prediction threshold (default: 0.45)\n- `factorStates` (object) - Which factors are active/inactive\n  - Example: `{\"volume_spike\": true, \"market_up\": true, \"break_ma50\": false}`\n\n**Response Structure:**\n```json\n{\n    \"data\": {\n        \"symbol\": \"AAPL\",\n        \"initialPrice\": 150.25,\n        \"timeHorizon\": 30,\n        \"baseCase\": [\n            {\n                \"day\": 1,\n                \"date\": \"2024-01-16\",\n                \"predictedPrice\": 152.50,\n                \"priceChange\": 2.25,\n                \"priceChangePercent\": 1.5,\n                \"score\": 0.65,\n                \"activeFactors\": [\"volume_spike\", \"market_up\"],\n                \"confidence\": 0.75\n            }\n        ],\n        \"scenarios\": [\n            {\n                \"type\": \"base\",\n                \"pricePath\": [...],\n                \"finalPrice\": 165.30,\n                \"totalReturn\": 15.05,\n                \"totalReturnPercent\": 10.02,\n                \"probability\": 0.5\n            },\n            {\n                \"type\": \"optimistic\",\n                \"finalPrice\": 178.20,\n                \"totalReturn\": 27.95,\n                \"totalReturnPercent\": 18.60,\n                \"probability\": 0.25\n            },\n            {\n                \"type\": \"pessimistic\",\n                \"finalPrice\": 152.40,\n                \"totalReturn\": 2.15,\n                \"totalReturnPercent\": 1.43,\n                \"probability\": 0.25\n            }\n        ],\n        \"confidenceIntervals\": [\n            {\n                \"confidenceLevel\": 0.68,\n                \"lowerBound\": 155.20,\n                \"upperBound\": 175.40\n            },\n            {\n                \"confidenceLevel\": 0.95,\n                \"lowerBound\": 150.10,\n                \"upperBound\": 180.50\n            }\n        ],\n        \"factorBreakdown\": [\n            {\n                \"factor\": \"volume_spike\",\n                \"contribution\": 2.5,\n                \"weight\": 0.30,\n                \"active\": true,\n                \"historicalAvgReturn\": 3.2\n            }\n        ],\n        \"historicalPatternMatches\": [\n            {\n                \"date\": \"2023-12-15\",\n                \"similarity\": 0.85,\n                \"actualReturn\": 2.3,\n                \"factors\": [\"volume_spike\", \"market_up\"]\n            }\n        ],\n        \"metadata\": {\n            \"parameters\": {...},\n            \"generatedAt\": \"2024-01-15T10:30:00Z\",\n            \"calculationMethod\": \"hybrid\"\n        }\n    }\n}\n```\n\n**Error Responses:**\n- `400` - Invalid parameters (invalid price, time horizon out of range)\n- `401` - Unauthorized\n- `404` - Stock analysis not found\n- `500` - Server error"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Simulate Prices (Standalone)",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"symbol\": \"AAPL\",\n    \"initialPrice\": 150.25,\n    \"timeHorizon\": 30,\n    \"factorWeights\": {\n        \"volume_spike\": 0.30,\n        \"market_up\": 0.25\n    },\n    \"threshold\": 0.50,\n    \"factorStates\": {\n        \"volume_spike\": true,\n        \"market_up\": true,\n        \"break_ma50\": false\n    },\n    \"stockAnalysisId\": 1\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/simulate",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "simulate"
+                            ]
+                        },
+                        "description": "Simulate predicted prices for any symbol (standalone simulation).\n\n**How it works:**\n1. Can work independently without existing stock analysis\n2. Optionally uses historical data if `stockAnalysisId` is provided\n3. Applies adjustable parameters (factor weights, threshold, factor states)\n4. Generates price path using hybrid approach\n5. Creates multiple scenarios and confidence intervals\n\n**Required Parameters:**\n- `symbol` (string) - Stock symbol/ticker\n- `initialPrice` (number) - Starting/current price for simulation\n- `timeHorizon` (integer, 1-365) - Number of days to simulate\n\n**Optional Parameters:**\n- `factorWeights` (object) - Override default factor weights\n- `threshold` (number, 0-1) - Prediction threshold (default: 0.45)\n- `factorStates` (object) - Which factors are active/inactive\n- `stockAnalysisId` (integer) - Optional stock analysis ID to use historical data\n\n**Response Structure:**\nSame as \"Simulate Prices (by ID)\" endpoint.\n\n**Use Cases:**\n- Test different parameter combinations\n- Simulate prices for symbols without existing analysis\n- Compare scenarios with different factor configurations\n- Analyze potential price movements based on factor adjustments\n\n**Error Responses:**\n- `400` - Invalid parameters (missing symbol, invalid price, time horizon out of range)\n- `401` - Unauthorized\n- `404` - Stock analysis not found (if stockAnalysisId provided)\n- `500` - Server error"
+                    },
+                    "response": []
+                },
+                {
                     "name": "Create Analysis",
                     "request": {
                         "method": "POST",
@@ -307,6 +991,40 @@
                                 "stock-analyses"
                             ]
                         }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Import from Vnstock API",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"symbol\": \"VCI\",\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"name\": \"Vietnam Capital Investment\",\n    \"market\": \"VN\",\n    \"source\": \"vci\",\n    \"interval\": \"D\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/import-from-vnstock",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "import-from-vnstock"
+                            ]
+                        },
+                        "description": "Create a new stock analysis and import data from vnstock API in one operation.\n\n**Required Fields:**\n- `symbol` - Stock symbol/ticket (e.g., VCI, FPT, VIC)\n- `start_date` - Start date in YYYY-MM-DD or DD-MM-YYYY format\n- `end_date` - End date in YYYY-MM-DD or DD-MM-YYYY format\n\n**Optional Fields:**\n- `name` - Company name\n- `market` - Market identifier (defaults to \"VN\")\n- `source` - Data source: \"vci\" | \"tcbs\" | \"msn\" (defaults to \"vci\")\n- `interval` - Data interval: \"D\" | \"1W\" | \"1M\" | \"1m\" | \"5m\" | \"15m\" | \"30m\" | \"1H\" (defaults to \"D\")\n\nThis endpoint automatically:\n1. Creates a new stock analysis record\n2. Downloads CSV data from vnstock API\n3. Imports the data to the database\n4. Calculates factor analysis\n5. Returns the completed analysis with results"
                     },
                     "response": []
                 },
@@ -361,6 +1079,27 @@
                     "response": []
                 },
                 {
+                    "name": "Regenerate Factors",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/1/regenerate-factors",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "1",
+                                "regenerate-factors"
+                            ]
+                        },
+                        "description": "Regenerate factors and technical indicators for existing stock analysis.\n\n**What it does:**\n- Recalculates all technical indicators (MA20, MA50, MA200, RSI)\n- Recalculates all factor flags (volume_spike, break_ma50, break_ma200, rsi_over_60, etc.)\n- Works with CSV file if available, otherwise reconstructs CSV from database\n- Updates all daily factor data records with calculated values\n\n**Use cases:**\n- Fix analyses with missing factors (all zeros/null)\n- Recalculate factors after code changes\n- Update factors for existing analyses\n\n**Response:**\n```json\n{\n    \"success\": true,\n    \"message\": \"Factors regenerated successfully from file\",\n    \"data\": {\n        \"stockAnalysis\": { ... },\n        \"recordsProcessed\": 760,\n        \"csvSource\": \"file\" // or \"database\"\n    }\n}\n```\n\n**Error Responses:**\n- `400` - Invalid stock analysis ID\n- `401` - Unauthorized\n- `404` - Stock analysis not found or no data available\n- `500` - Server error (status set to `factor_failed` on error)"
+                    },
+                    "response": []
+                },
+                {
                     "name": "Trigger Analysis (Full)",
                     "request": {
                         "method": "POST",
@@ -377,6 +1116,102 @@
                                 "analyze"
                             ]
                         }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Stocks by Group",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/by-group?group=VN30&dateFrom=2025-01-01&dateTo=2025-01-31&minIncrease=5&limit=50",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "by-group"
+                            ],
+                            "query": [
+                                {
+                                    "key": "group",
+                                    "value": "VN30",
+                                    "description": "Stock group (e.g., VN30, VN100)"
+                                },
+                                {
+                                    "key": "dateFrom",
+                                    "value": "2025-01-01",
+                                    "description": "Start date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "dateTo",
+                                    "value": "2025-01-31",
+                                    "description": "End date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "minIncrease",
+                                    "value": "5",
+                                    "description": "Minimum price increase percentage"
+                                },
+                                {
+                                    "key": "limit",
+                                    "value": "50",
+                                    "description": "Maximum number of results (0 for all)"
+                                }
+                            ]
+                        },
+                        "description": "Get stocks by group with price increase filter. Returns stocks that meet the minimum price increase criteria within the specified date range."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Empty Analyses",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/delete-empty",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "delete-empty"
+                            ]
+                        },
+                        "description": "Delete stock analyses that have no data from the remote backend.\n\n**An analysis is considered \"empty\" if it has:**\n- No CSV file path\n- No daily factor data\n- No daily scores\n\n**Requirements:**\n- Admin role required\n- Authentication required\n\n**What this endpoint does:**\n1. Fetches all stock analyses\n2. Checks each analysis for:\n   - CSV file path existence\n   - Daily factor data (checks `/daily-factor-data` endpoint)\n   - Daily scores (checks `/daily-scores` endpoint)\n3. Deletes analyses that meet all empty criteria\n\n**Response:**\n```json\n{\n    \"success\": true,\n    \"message\": \"Deleted X out of Y empty stock analyses\",\n    \"deleted\": 5,\n    \"failed\": 0,\n    \"checked\": 100,\n    \"emptyCount\": 5\n}\n```\n\n**Error Responses:**\n- `401` - Unauthorized (not authenticated)\n- `403` - Insufficient permissions (admin role required)\n- `500` - Server error\n\n**Note:** This is a destructive operation that cannot be undone!"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Calculate ML Feature Importance",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"symbol\": \"TCB\",\n    \"market\": \"VN\",\n    \"startDate\": \"2023-01-01\",\n    \"targetPct\": 0.03,\n    \"topN\": 10\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/stock-analyses/ml-feature-importance",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "stock-analyses",
+                                "ml-feature-importance"
+                            ]
+                        },
+                        "description": "Calculate feature importance for predicting strong price moves using machine learning techniques.\n\n**How it works:**\n1. Fetches historical stock data (either by symbol or from existing stock analysis)\n2. Calculates technical indicators (MA20, MA50, MA200, RSI, Bollinger Bands, Volume MA)\n3. Builds a dataset with lagged features (previous day's indicators)\n4. Labels days as \"strong\" if price increase exceeds target percentage\n5. Calculates feature importance using correlation and information gain\n6. Returns top N factors ranked by importance\n\n**Required Parameters:**\n- Either `symbol` OR `stockAnalysisId` must be provided\n\n**Optional Parameters:**\n- `symbol` (string) - Stock symbol/ticker (e.g., TCB, AAPL). Required if stockAnalysisId not provided. Ignored if stockAnalysisId is provided (symbol is fetched from database).\n- `market` (string) - Market code: \"US\" or \"VN\" (default: \"US\"). Ignored if stockAnalysisId is provided (market is fetched from database).\n- `startDate` (string) - Start date for historical data in YYYY-MM-DD format (default: 1 year ago). Not used when stockAnalysisId is provided.\n- `targetPct` (number) - Target percentage increase to label strong days (default: 0.03 = 3%). Must be between 0 and 1.\n- `topN` (integer) - Number of top factors to return (default: 10). Must be between 1 and 50.\n- `stockAnalysisId` (integer) - Use existing stock analysis data instead of fetching historical data. When provided, symbol and market are automatically retrieved from the StockAnalysis record. Required if symbol not provided.\n\n**Features Analyzed:**\n- `Lag_RSI` - Previous day's RSI (Relative Strength Index)\n- `Lag_Above_SMA20` - Whether previous day's close was above 20-day moving average (1 or 0)\n- `Lag_BB_Width` - Previous day's Bollinger Bands width\n- `Lag_Vol_Spike` - Whether previous day had volume spike > 1.5x average (1 or 0)\n- `Lag_Return` - Previous day's percentage return\n- `Lag_Low_Vol` - Whether previous day had low volume < 0.7x average (1 or 0)\n\n**Response Structure:**\n```json\n{\n    \"data\": {\n        \"symbol\": \"TCB\",\n        \"market\": \"VN\",\n        \"startDate\": \"2023-01-01\",\n        \"endDate\": \"2024-01-15\",\n        \"targetPct\": 0.03,\n        \"statistics\": {\n            \"totalDays\": 250,\n            \"strongDays\": 45,\n            \"strongDaysPercentage\": 18.0\n        },\n        \"topFactors\": [\n            {\n                \"factor\": \"Lag_Vol_Spike\",\n                \"weight\": 0.85,\n                \"importance\": 0.85,\n                \"correlation\": 0.42,\n                \"informationGain\": 0.15\n            },\n            {\n                \"factor\": \"Lag_RSI\",\n                \"weight\": 0.72,\n                \"importance\": 0.72,\n                \"correlation\": 0.38,\n                \"informationGain\": 0.12\n            }\n        ],\n        \"allFeatures\": [\n            {\n                \"factor\": \"Lag_Vol_Spike\",\n                \"weight\": 0.85,\n                \"importance\": 0.85,\n                \"correlation\": 0.42,\n                \"informationGain\": 0.15\n            },\n            {\n                \"factor\": \"Lag_RSI\",\n                \"weight\": 0.72,\n                \"importance\": 0.72,\n                \"correlation\": 0.38,\n                \"informationGain\": 0.12\n            }\n        ],\n        \"modelAccuracy\": {\n            \"baselineAccuracy\": 0.18,\n            \"featureImportanceMethod\": \"correlation_and_entropy\"\n        }\n    }\n}\n```\n\n**Feature Importance Calculation:**\n- Uses weighted combination of correlation (60%) and information gain (40%)\n- Correlation: Pearson correlation between feature and target (strong days)\n- Information Gain: Entropy-based measure of how well feature splits strong vs. normal days\n- Higher weight/importance indicates stronger predictive power\n\n**Use Cases:**\n- Identify which technical indicators best predict strong price movements\n- Optimize factor weights for prediction models\n- Understand which market signals are most reliable\n- Compare feature importance across different stocks or time periods\n\n**Error Responses:**\n- `400` - Invalid input parameters:\n  - Missing both symbol and stockAnalysisId\n  - Invalid targetPct (must be 0-1)\n  - Invalid topN (must be 1-50)\n  - Not enough historical data (< 30 days)\n  - Not enough valid samples after feature engineering (< 10)\n- `401` - Unauthorized\n- `404` - Stock analysis not found (if stockAnalysisId provided)\n- `500` - Server error\n\n**Notes:**\n- Requires minimum 30 days of historical data\n- Requires minimum 10 valid samples after feature engineering\n- Uses lagged features (previous day's indicators) to predict current day's strong movement\n- Feature importance is normalized and ranked\n- Can use existing stock analysis data (faster) or fetch fresh historical data\n- All features are lagged (from previous day) to enable prediction\n\n**Example Requests:**\n\n1. **By Symbol (Fresh Data):**\n```json\n{\n    \"symbol\": \"AAPL\",\n    \"market\": \"US\",\n    \"targetPct\": 0.03,\n    \"topN\": 10\n}\n```\n\n2. **By Stock Analysis ID (Use Existing Data):**\n```json\n{\n    \"stockAnalysisId\": 123,\n    \"targetPct\": 0.05,\n    \"topN\": 5\n}\n```\n\n3. **Custom Date Range:**\n```json\n{\n    \"symbol\": \"TCB\",\n    \"market\": \"VN\",\n    \"startDate\": \"2023-01-01\",\n    \"targetPct\": 0.04,\n    \"topN\": 15\n}\n```"
                     },
                     "response": []
                 }
@@ -514,6 +1349,199 @@
                                 "api",
                                 "users",
                                 "role"
+                            ]
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Watchlists",
+            "item": [
+                {
+                    "name": "Get All Watchlists",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create Watchlist (sets watchlist_id)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "if (pm.response.code === 201 || pm.response.code === 200) {",
+                                    "    const response = pm.response.json();",
+                                    "    const id = response?.data?.id;",
+                                    "    if (id !== undefined && id !== null) {",
+                                    "        pm.collectionVariables.set('watchlist_id', String(id));",
+                                    "        console.log('Watchlist ID saved to collection variable: watchlist_id =', id);",
+                                    "    }",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Tech Stocks\",\n    \"symbols\": [\"AAPL\", \"MSFT\", \"GOOGL\"]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists"
+                            ]
+                        },
+                        "description": "Creates a new watchlist and saves its id into the collection variable `watchlist_id` for subsequent requests."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Watchlist by ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists/{{watchlist_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists",
+                                "{{watchlist_id}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Watchlist (rename)",
+                    "request": {
+                        "method": "PUT",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Tech Stocks (Updated)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists/{{watchlist_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists",
+                                "{{watchlist_id}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Add Symbols to Watchlist",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"symbols\": [\"NVDA\", \"TSLA\"]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists/{{watchlist_id}}/symbols",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists",
+                                "{{watchlist_id}}",
+                                "symbols"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Remove Symbols from Watchlist",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"symbols\": [\"TSLA\"]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists/{{watchlist_id}}/symbols",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists",
+                                "{{watchlist_id}}",
+                                "symbols"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Watchlist",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/watchlists/{{watchlist_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "watchlists",
+                                "{{watchlist_id}}"
                             ]
                         }
                     },
@@ -713,7 +1741,14 @@
         {
             "key": "token",
             "value": "your_bearer_token_here",
-            "type": "string"
+            "type": "string",
+            "description": "NextAuth JWT Bearer token. Get a dev token using the 'Get Dev Token' request in the Auth folder, or extract from NextAuth session cookies."
+        },
+        {
+            "key": "watchlist_id",
+            "value": "1",
+            "type": "string",
+            "description": "Watchlist ID used in Watchlists requests. Auto-set by 'Create Watchlist (sets watchlist_id)'."
         }
     ]
 }

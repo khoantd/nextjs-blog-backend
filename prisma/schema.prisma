@@ -49,8 +49,10 @@ model User {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  accounts      Account[]
-  sessions      Session[]
+  accounts            Account[]
+  sessions            Session[]
+  watchlists          Watchlist[]
+  predictionFeedbacks PredictionFeedback[]
 
   @@map("users")
 }
@@ -122,8 +124,24 @@ model StockAnalysis {
   dailyFactorData           DailyFactorData[]
   dailyScores               DailyScore[]
   factorTables              FactorTable[]
+  predictions               Prediction[]
 
   @@map("stock_analyses")
+}
+
+model Watchlist {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  name      String   // Watchlist name (e.g., "Tech Stocks")
+  symbols   String   // JSON array string: ["AAPL","MSFT"]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("watchlists")
 }
 
 model DailyFactorData {
@@ -225,4 +243,56 @@ model EarningsData {
   
   @@unique([symbol, earningsDate])
   @@map("earnings_data")
+}
+
+model Prediction {
+  id              Int      @id @default(autoincrement())
+  stockAnalysisId Int      @map("stock_analysis_id")
+  date            String   // ISO date string (YYYY-MM-DD)
+  symbol          String   // Stock symbol
+  score           Float    // Prediction score (0-100)
+  prediction      String   // 'HIGH_PROBABILITY' | 'MODERATE' | 'LOW_PROBABILITY'
+  confidence      Float    // Confidence level (0-100, percentage)
+  threshold       Float    // Threshold used for prediction
+  aboveThreshold  Boolean  @default(false) @map("above_threshold")
+  isFuture        Boolean  @default(false) @map("is_future") // true for future predictions
+  
+  // Prediction details stored as JSON
+  activeFactors   String?  @map("active_factors") // JSON array of active factors
+  recommendations String?  // JSON array of recommendations
+  interpretation  String?  // Interpretation text
+  signals         String?  // JSON object with technical signals
+  patterns        String?  // JSON object with pattern recognition
+  priceData       String?  @map("price_data") // JSON object with price data
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  stockAnalysis   StockAnalysis @relation(fields: [stockAnalysisId], references: [id], onDelete: Cascade)
+  feedbacks       PredictionFeedback[]
+  
+  @@unique([stockAnalysisId, date]) // One prediction per stock analysis per date
+  @@index([stockAnalysisId, date])
+  @@index([date])
+  @@index([prediction])
+  @@map("predictions")
+}
+
+model PredictionFeedback {
+  id              Int      @id @default(autoincrement())
+  predictionId    Int      @map("prediction_id")
+  userId          Int      @map("user_id")
+  isCorrect       Boolean  @map("is_correct") // true = correct, false = incorrect
+  notes           String?  // Optional notes about the feedback
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  prediction      Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([predictionId, userId]) // One feedback per user per prediction
+  @@index([predictionId])
+  @@index([userId])
+  @@index([isCorrect])
+  @@map("prediction_feedbacks")
 }

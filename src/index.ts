@@ -19,6 +19,7 @@ import workflowRoutes from './routes/workflows';
 import userRoutes from './routes/users';
 import earningsRoutes from './routes/earnings';
 import stockRoutes from './routes/stocks';
+import watchlistRoutes from './routes/watchlists';
 import { AuthenticationError, AuthorizationError } from './lib/auth-utils';
 
 import { getToken, decode } from "next-auth/jwt";
@@ -30,9 +31,11 @@ import { initializeDatabase } from './lib/migrate';
 const authenticateToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const cookieHeader = req.headers.cookie || '';
+    const authHeader = req.headers.authorization || '';
     const hasNextAuthSecret = !!process.env.NEXTAUTH_SECRET;
     
     console.log("Auth middleware - Cookies present:", !!cookieHeader);
+    console.log("Auth middleware - Authorization header present:", !!authHeader);
     console.log("Auth middleware - NEXTAUTH_SECRET:", hasNextAuthSecret ? "Set" : "Not set");
     
     if (!hasNextAuthSecret) {
@@ -41,8 +44,30 @@ const authenticateToken = async (req: express.Request, res: express.Response, ne
       return next();
     }
 
-    // Parse cookies to see what we have
+    let token = null;
     let sessionTokenValue: string | null = null;
+
+    // First, try Bearer token authentication
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const bearerToken = authHeader.substring(7).trim();
+      if (bearerToken) {
+        try {
+          console.log("Auth middleware - Attempting to decode Bearer token");
+          const decoded = await decode({
+            token: bearerToken,
+            secret: process.env.NEXTAUTH_SECRET!,
+          });
+          if (decoded) {
+            token = decoded as any;
+            console.log("Auth middleware - Bearer token decoded successfully");
+          }
+        } catch (error: any) {
+          console.log("Auth middleware - Bearer token decode failed:", error?.message || 'Unknown error');
+        }
+      }
+    }
+
+    // Parse cookies to see what we have (only if Bearer token didn't work)
     if (cookieHeader) {
       const cookies = cookieHeader.split(';').map(c => c.trim());
       const cookieNames = [
@@ -69,88 +94,88 @@ const authenticateToken = async (req: express.Request, res: express.Response, ne
       }
     }
 
-    // Try to get token using getToken
-    let token = null;
-    
-    // Create a request-like object that getToken expects
-    // getToken from next-auth/jwt expects either a Next.js request or an object with headers
-    // It also needs a cookies method for proper cookie parsing
-    const requestForGetToken = {
-      headers: {
-        cookie: cookieHeader,
-        ...req.headers,
-      },
-      url: req.url,
-      method: req.method,
-      // Add cookies method for NextAuth compatibility
-      cookies: {
-        get: (name: string) => {
-          if (!cookieHeader) return undefined;
-          const cookies = cookieHeader.split(';').map(c => c.trim());
-          const cookie = cookies.find(c => c.startsWith(`${name}=`));
-          if (cookie) {
-            return decodeURIComponent(cookie.substring(name.length + 1));
-          }
-          return undefined;
-        },
-      },
-    } as any;
-
-    // First, try without explicit cookie name (auto-detect)
-    try {
-      token = await getToken({
-        req: requestForGetToken,
-        secret: process.env.NEXTAUTH_SECRET!,
-        secureCookie: process.env.NODE_ENV === 'production',
-      });
-      if (token) {
-        console.log("Auth middleware - Token found via auto-detect");
-      }
-    } catch (error: any) {
-      console.log("Auth middleware - Auto-detect failed:", error?.message || 'Unknown error');
-    }
-
-    // If auto-detect failed, try both cookie names explicitly
+    // Try to get token using getToken (only if Bearer token didn't work)
     if (!token) {
-      const cookieNames = [
-        'next-auth.session-token',
-        '__Secure-next-auth.session-token',
-      ];
-      
-      for (const cookieName of cookieNames) {
-        try {
-          token = await getToken({
-            req: requestForGetToken,
-            secret: process.env.NEXTAUTH_SECRET!,
-            secureCookie: cookieName.startsWith('__Secure-'),
-            cookieName,
-          });
-          if (token) {
-            console.log(`Auth middleware - Found token using cookie: ${cookieName}`);
-            break;
-          }
-        } catch (error: any) {
-          console.log(`Auth middleware - Failed to get token from ${cookieName}:`, error?.message || 'Unknown error');
-          // Continue to next cookie name
-          continue;
-        }
-      }
-    }
+      // Create a request-like object that getToken expects
+      // getToken from next-auth/jwt expects either a Next.js request or an object with headers
+      // It also needs a cookies method for proper cookie parsing
+      const requestForGetToken = {
+        headers: {
+          cookie: cookieHeader,
+          ...req.headers,
+        },
+        url: req.url,
+        method: req.method,
+        // Add cookies method for NextAuth compatibility
+        cookies: {
+          get: (name: string) => {
+            if (!cookieHeader) return undefined;
+            const cookies = cookieHeader.split(';').map(c => c.trim());
+            const cookie = cookies.find(c => c.startsWith(`${name}=`));
+            if (cookie) {
+              return decodeURIComponent(cookie.substring(name.length + 1));
+            }
+            return undefined;
+          },
+        },
+      } as any;
 
-    // If getToken failed but we have a session token value, try manual decode as fallback
-    if (!token && sessionTokenValue) {
+      // First, try without explicit cookie name (auto-detect)
       try {
-        console.log("Auth middleware - Attempting manual decode of session token");
-        const decoded = await decode({
-          token: sessionTokenValue,
+        token = await getToken({
+          req: requestForGetToken,
           secret: process.env.NEXTAUTH_SECRET!,
+          secureCookie: process.env.NODE_ENV === 'production',
         });
-        if (decoded) {
-          token = decoded as any;
-          console.log("Auth middleware - Token decoded manually");
+        if (token) {
+          console.log("Auth middleware - Token found via auto-detect");
         }
       } catch (error: any) {
-        console.log("Auth middleware - Manual decode failed:", error?.message || 'Unknown error');
+        console.log("Auth middleware - Auto-detect failed:", error?.message || 'Unknown error');
+      }
+
+      // If auto-detect failed, try both cookie names explicitly
+      if (!token) {
+        const cookieNames = [
+          'next-auth.session-token',
+          '__Secure-next-auth.session-token',
+        ];
+        
+        for (const cookieName of cookieNames) {
+          try {
+            token = await getToken({
+              req: requestForGetToken,
+              secret: process.env.NEXTAUTH_SECRET!,
+              secureCookie: cookieName.startsWith('__Secure-'),
+              cookieName,
+            });
+            if (token) {
+              console.log(`Auth middleware - Found token using cookie: ${cookieName}`);
+              break;
+            }
+          } catch (error: any) {
+            console.log(`Auth middleware - Failed to get token from ${cookieName}:`, error?.message || 'Unknown error');
+            // Continue to next cookie name
+            continue;
+          }
+        }
+      }
+
+      // If getToken failed but we have a session token value, try manual decode as fallback
+      if (!token && sessionTokenValue) {
+        try {
+          console.log("Auth middleware - Attempting manual decode of session token");
+          const decoded = await decode({
+            token: sessionTokenValue,
+            secret: process.env.NEXTAUTH_SECRET!,
+          });
+          if (decoded) {
+            token = decoded as any;
+            console.log("Auth middleware - Token decoded manually");
+          }
+        } catch (error: any) {
+          console.log("Auth middleware - Manual decode failed:", error?.message || 'Unknown error');
+        }
       }
     }
 
@@ -343,6 +368,9 @@ app.get('/api-docs', (req, res, next) => {
     customSiteTitle: 'NextJS Blog Backend API Docs',
     swaggerOptions: {
       persistAuthorization: true,
+      supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
+      // Enable Bearer token authentication in Swagger UI
+      // Users can click "Authorize" button and enter their Bearer token
     },
   })(req, res, next);
 });
@@ -588,6 +616,7 @@ app.post('/api/users/by-email', async (req, res) => {
 app.use('/api/blog-posts', authenticateToken, blogPostRoutes);
 app.use('/api/stock-analyses', authenticateToken, stockAnalysisRoutes);
 app.use('/api/workflows', authenticateToken, workflowRoutes);
+app.use('/api/watchlists', authenticateToken, watchlistRoutes);
 
 // CRITICAL: Register /api/users router AFTER the specific /api/users/by-email route
 // This ensures the specific route matches first

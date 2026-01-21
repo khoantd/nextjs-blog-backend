@@ -123,6 +123,20 @@ VNSTOCK_API_USERNAME=your-username
 VNSTOCK_API_PASSWORD=your-password
 ```
 
+#### Timeout Configuration (Optional)
+
+**Default Timeout** (for regular API requests):
+```bash
+VNSTOCK_API_TIMEOUT=30000  # 30 seconds (default)
+```
+
+**CSV Download Timeout** (for CSV downloads, which can take longer):
+```bash
+VNSTOCK_API_CSV_TIMEOUT=180000  # 180 seconds / 3 minutes (default)
+```
+
+**Note:** CSV downloads may take longer, especially for large date ranges. If you encounter timeout errors, increase `VNSTOCK_API_CSV_TIMEOUT` (e.g., `300000` for 5 minutes).
+
 ## Environment-Specific Setup
 
 ### Local Development

@@ -114,7 +114,8 @@ export class StockPriceService {
         options: HistoricalDataOptions = {}
     ): Promise<HistoricalDataPoint[]> {
         try {
-            const cleanSymbol = symbol.toUpperCase();
+            // Trim and uppercase symbol to ensure it passes validation
+            const cleanSymbol = symbol.trim().toUpperCase();
             const {
                 period1,
                 period2 = new Date(),
@@ -242,8 +243,29 @@ export class StockPriceService {
                             'Accept': 'application/json, text/plain, */*',
                         },
                         httpsAgent: this.httpsAgent,
-                        timeout: 15000
+                        timeout: 15000,
+                        validateStatus: (status) => status < 500 // Don't throw on 4xx, we'll handle it
                     });
+
+                    // Check for error status codes
+                    if (response.status >= 400) {
+                        console.log(`CafeF endpoint ${endpoint} returned status ${response.status}, trying next...`);
+                        lastError = new Error(`CafeF API returned status ${response.status}`);
+                        continue;
+                    }
+
+                    // Detect if response is HTML (error page) instead of JSON
+                    const responseStr = typeof response.data === 'string' ? response.data : String(response.data);
+                    if (typeof response.data === 'string' && (
+                        responseStr.includes('<!DOCTYPE') || 
+                        responseStr.includes('<html') ||
+                        responseStr.includes('Admicro Tag Manager') ||
+                        responseStr.includes('googletagmanager.com')
+                    )) {
+                        console.log(`CafeF endpoint ${endpoint} returned HTML instead of JSON, trying next...`);
+                        lastError = new Error('CafeF API returned HTML error page instead of data');
+                        continue;
+                    }
 
                     if (response.data && Array.isArray(response.data) && response.data.length > 0) {
                         historicalData = response.data;
@@ -316,7 +338,30 @@ export class StockPriceService {
 
         } catch (error: any) {
             console.error(`Error fetching Vietnamese historical data for ${symbol}:`, error);
-            throw new Error(`Failed to fetch historical data: ${error.message || 'Unknown error'}`);
+            
+            // Check if vnstock is configured
+            const { getVnstockClient } = await import('./vnstock-client');
+            const vnstockClient = getVnstockClient();
+            const vnstockConfigured = vnstockClient !== null;
+            
+            // Provide helpful error message based on what failed
+            let errorMessage = `Failed to fetch historical data for ${symbol}`;
+            
+            if (error.message && error.message.includes('CafeF')) {
+                // CafeF-specific error, preserve the message
+                errorMessage = error.message;
+            } else if (!vnstockConfigured && error.message && error.message.includes('vnstock')) {
+                errorMessage = `Vnstock API is not configured. ${error.message}. Please configure vnstock API or use CSV upload for Vietnamese stocks.`;
+            } else {
+                errorMessage = `${errorMessage}: ${error.message || 'Unknown error'}`;
+            }
+            
+            // Add suggestion for CSV upload
+            if (!errorMessage.includes('CSV upload')) {
+                errorMessage += ' Please use CSV upload for Vietnamese stocks - it is more reliable.';
+            }
+            
+            throw new Error(errorMessage);
         }
     }
 
@@ -340,12 +385,32 @@ export class StockPriceService {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 },
                 httpsAgent: this.httpsAgent,
-                timeout: 15000
+                timeout: 15000,
+                validateStatus: (status) => status < 500 // Don't throw on 4xx, we'll handle it
             });
 
+            // Check for error status codes
+            if (response.status === 404) {
+                throw new Error(`CafeF page not found for symbol ${symbol}. The stock symbol may be incorrect or the page structure has changed.`);
+            }
+
+            if (response.status >= 400) {
+                throw new Error(`CafeF returned error status ${response.status} for symbol ${symbol}.`);
+            }
+
             // Parse HTML to extract historical data
-            // This is a simplified parser - may need adjustment based on actual CafeF HTML structure
-            const html = response.data;
+            const html = typeof response.data === 'string' ? response.data : String(response.data);
+            
+            // Detect if this is an error page (contains tag manager scripts but no stock data)
+            const isErrorPage = html.includes('Admicro Tag Manager') || 
+                               html.includes('googletagmanager.com/gtm.js') ||
+                               html.includes('<title>404') ||
+                               html.includes('Page Not Found') ||
+                               html.includes('Không tìm thấy');
+
+            if (isErrorPage) {
+                throw new Error(`CafeF returned an error page for symbol ${symbol}. The page may not exist or the URL format has changed.`);
+            }
             
             // Try to find JSON data embedded in the page
             const jsonMatch = html.match(/var\s+stockData\s*=\s*({.*?});/s) || 
@@ -361,16 +426,46 @@ export class StockPriceService {
                         return this.transformCafeFData(data.history || data.data, startDate, endDate);
                     }
                 } catch (e) {
-                    console.log('Failed to parse embedded JSON data');
+                    console.log('Failed to parse embedded JSON data from CafeF page');
                 }
             }
 
             // If no embedded data found, throw error to suggest CSV upload
-            throw new Error('Historical data not available via API. Please use CSV upload for Vietnamese stocks.');
+            throw new Error(`CafeF page does not contain embedded stock data for ${symbol}. The page structure may have changed. Please use CSV upload for Vietnamese stocks.`);
 
         } catch (error: any) {
+            // If it's already our custom error, rethrow it
+            if (error.message && error.message.includes('CafeF')) {
+                throw error;
+            }
+            
+            // Handle axios errors
+            if (error.response) {
+                const status = error.response.status;
+                const statusText = error.response.statusText || 'Unknown';
+                console.error(`Error fetching from CafeF page for ${symbol}: HTTP ${status} ${statusText}`);
+                
+                if (status === 404) {
+                    throw new Error(`CafeF page not found for symbol ${symbol}. Please verify the symbol is correct or use CSV upload.`);
+                } else if (status >= 500) {
+                    throw new Error(`CafeF server error (${status}). Please try again later or use CSV upload.`);
+                } else {
+                    throw new Error(`CafeF returned error ${status} for symbol ${symbol}. Please use CSV upload for Vietnamese stocks.`);
+                }
+            }
+            
+            // Handle network/timeout errors
+            if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                throw new Error(`Request to CafeF timed out for symbol ${symbol}. Please use CSV upload for Vietnamese stocks.`);
+            }
+            
+            if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+                throw new Error(`Cannot connect to CafeF for symbol ${symbol}. Please use CSV upload for Vietnamese stocks.`);
+            }
+            
+            // Generic error
             console.error(`Error fetching from CafeF page for ${symbol}:`, error);
-            throw new Error(`CafeF historical data not available. Please upload CSV file for ${symbol}.`);
+            throw new Error(`CafeF historical data not available for ${symbol}. ${error.message || 'Please upload CSV file for Vietnamese stocks.'}`);
         }
     }
 
@@ -481,28 +576,72 @@ export class StockPriceService {
 
             if (vnstockClient) {
                 try {
-                    const cleanSymbol = symbol.toUpperCase();
+                    // Trim and uppercase symbol to ensure it passes validation
+                    const cleanSymbol = symbol.trim().toUpperCase();
+                    
+                    // Validate symbol length before sending to API
+                    if (cleanSymbol.length < 1 || cleanSymbol.length > 15) {
+                        throw new Error(`Invalid symbol length: ${cleanSymbol.length} (must be between 1 and 15 characters)`);
+                    }
+                    
                     const priceBoard = await vnstockClient.getPriceBoard({
                         symbols_list: [cleanSymbol],
                         source: 'vci',
                     });
 
                     // Parse price board data
-                    // The response structure depends on vnstock API format
+                    // The response structure follows vnstock API format:
+                    // { data: { [symbol]: { price, change, change_percent, volume, ... } } }
                     if (priceBoard.data && priceBoard.data[cleanSymbol]) {
                         const stockData = priceBoard.data[cleanSymbol];
-                        const price = stockData.Price || stockData.price || stockData.close || 0;
-                        const refPrice = stockData.RefPrice || stockData.refPrice || stockData.previousClose || price;
-                        const change = price - refPrice;
-                        const changePercent = refPrice > 0 ? (change / refPrice) * 100 : 0;
+                        
+                        // Debug: Log the actual response structure for troubleshooting
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log(`[Vnstock Price] Response structure for ${cleanSymbol}:`, JSON.stringify(stockData, null, 2));
+                        }
+                        
+                        // Use vnstock API format fields first (lowercase)
+                        // Fallback to uppercase variants for compatibility
+                        const price = stockData.price || stockData.Price || stockData.close || 0;
+                        const change = stockData.change !== undefined ? stockData.change : 
+                                      (stockData.Change !== undefined ? stockData.Change : 0);
+                        const changePercent = stockData.change_percent !== undefined ? stockData.change_percent :
+                                             (stockData.changePercent !== undefined ? stockData.changePercent :
+                                             (stockData.ChangePercent !== undefined ? stockData.ChangePercent : 0));
+                        const volume = stockData.volume !== undefined ? stockData.volume :
+                                      (stockData.Volume !== undefined ? stockData.Volume : 0);
+                        
+                        // Try to extract trading day from API response if available
+                        // Common field names: trading_date, date, lastUpdate, updated_at
+                        let tradingDay = stockData.trading_date || stockData.date || 
+                                        stockData.lastUpdate || stockData.updated_at;
+                        
+                        // If trading day is a Date object, convert to string
+                        if (tradingDay instanceof Date) {
+                            tradingDay = tradingDay.toISOString().split('T')[0];
+                        } else if (typeof tradingDay === 'string') {
+                            // Try to parse and normalize date string
+                            const parsed = new Date(tradingDay);
+                            if (!isNaN(parsed.getTime())) {
+                                tradingDay = parsed.toISOString().split('T')[0];
+                            } else {
+                                // If parsing fails, use today's date as fallback
+                                tradingDay = new Date().toISOString().split('T')[0];
+                            }
+                        } else {
+                            // Default to today's date if not provided
+                            tradingDay = new Date().toISOString().split('T')[0];
+                        }
 
                         return {
                             symbol: cleanSymbol,
                             price: parseFloat(price.toFixed(2)),
                             change: parseFloat(change.toFixed(2)),
-                            changePercent: `${changePercent.toFixed(2)}%`,
-                            volume: stockData.Volume || stockData.volume || 0,
-                            latestTradingDay: new Date().toISOString().split('T')[0],
+                            changePercent: typeof changePercent === 'number' 
+                                ? `${changePercent.toFixed(2)}%` 
+                                : changePercent.toString(),
+                            volume: volume || 0,
+                            latestTradingDay: tradingDay,
                             currency: 'VND'
                         };
                     }
@@ -513,7 +652,7 @@ export class StockPriceService {
             }
 
             // Fallback to CafeF API if vnstock is not configured or fails
-            const cleanSymbol = symbol.toUpperCase();
+            const cleanSymbol = symbol.trim().toUpperCase();
 
             const response = await axios.get(
                 `https://cafef.vn/du-lieu/Ajax/PageNew/RealtimePricesHeader.ashx`,

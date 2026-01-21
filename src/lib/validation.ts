@@ -19,6 +19,28 @@ export const userRoleUpdateSchema = z.object({
   role: z.enum(['viewer', 'editor', 'admin'])
 });
 
+// Watchlist validation schemas
+export const stockSymbolSchema = z
+  .string()
+  .trim()
+  .min(1, 'Symbol is required')
+  .max(15, 'Symbol must be less than 15 characters')
+  .regex(/^[A-Za-z0-9.\-]+$/, 'Symbol must be alphanumeric and may include . or -');
+
+export const watchlistCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Watchlist name is required').max(50, 'Watchlist name must be less than 50 characters'),
+  symbols: z.array(stockSymbolSchema).max(500, 'Too many symbols').optional(),
+});
+
+export const watchlistUpdateSchema = z.object({
+  name: z.string().trim().min(1, 'Watchlist name is required').max(50, 'Watchlist name must be less than 50 characters').optional(),
+  symbols: z.array(stockSymbolSchema).max(500, 'Too many symbols').optional(),
+});
+
+export const watchlistSymbolsSchema = z.object({
+  symbols: z.array(stockSymbolSchema).min(1, 'At least one symbol is required').max(500, 'Too many symbols'),
+});
+
 // Authentication validation schemas
 export const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -103,3 +125,120 @@ export const sanitizeTitle = (title: string): string => {
     .replace(/[<>]/g, '') // Remove potential HTML tags
     .substring(0, 200);
 };
+
+// Prediction feedback validation schemas
+export const predictionFeedbackSchema = z.object({
+  isCorrect: z.boolean(),
+  notes: z.string().max(1000, 'Notes must be less than 1000 characters').optional(),
+});
+
+export type PredictionFeedbackInput = z.infer<typeof predictionFeedbackSchema>;
+
+// Stock analysis update schema (single resource)
+export const stockAnalysisUpdateSchema = z
+  .object({
+    favorite: z.boolean().optional(),
+    market: z.enum(['US', 'VN']).nullable().optional(),
+    minPctChange: z
+      .number()
+      .positive('minPctChange must be positive')
+      .optional(),
+    regenerate: z
+      .boolean()
+      .optional()
+      .default(false), // Whether to regenerate factors after updating minPctChange
+  })
+  .refine(
+    (data) => {
+      // Allow regenerate alone, or at least one other field
+      const hasRegenerate = data.regenerate === true;
+      const hasOtherFields = Object.keys(data).filter(k => k !== 'regenerate').length > 0;
+      return hasRegenerate || hasOtherFields;
+    },
+    {
+      message: 'At least one field must be provided (or regenerate must be true)',
+    }
+  );
+
+// Bulk Min Change update schema
+export const stockAnalysisBulkMinPctChangeSchema = z.object({
+  symbols: z
+    .array(stockSymbolSchema)
+    .min(1, 'At least one symbol is required')
+    .max(500, 'Too many symbols'),
+  minPctChange: z
+    .number()
+    .positive('minPctChange must be positive')
+    .optional(),
+  regenerate: z
+    .boolean()
+    .optional()
+    .default(false), // Whether to regenerate factors after updating minPctChange
+});
+
+// ML Feature Importance validation schema
+export const mlFeatureImportanceSchema = z
+  .preprocess(
+    (data) => {
+      // If symbol is an array, move it to symbols field (merge if symbols already exists)
+      if (data && typeof data === 'object' && 'symbol' in data && Array.isArray(data.symbol)) {
+        const existingSymbols = 'symbols' in data && Array.isArray(data.symbols) ? data.symbols : [];
+        return {
+          ...data,
+          symbols: [...existingSymbols, ...data.symbol],
+          symbol: undefined,
+        };
+      }
+      return data;
+    },
+    z.object({
+      symbol: stockSymbolSchema.optional(),
+      symbols: z
+        .array(stockSymbolSchema)
+        .min(1, 'At least one symbol is required')
+        .max(100, 'Too many symbols (max 100)')
+        .optional(),
+      market: z.enum(['US', 'VN']).optional(),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional(),
+      targetPct: z
+        .number()
+        .positive('targetPct must be positive')
+        .max(1, 'targetPct must be between 0 and 1')
+        .optional(),
+      topN: z
+        .number()
+        .int('topN must be an integer')
+        .positive('topN must be positive')
+        .max(50, 'topN must be at most 50')
+        .optional(),
+      stockAnalysisId: z
+        .number()
+        .int('stockAnalysisId must be an integer')
+        .positive('stockAnalysisId must be positive')
+        .optional(),
+    })
+  )
+  .refine(
+    (data) => {
+      // Either symbol, symbols, or stockAnalysisId must be provided
+      const hasSymbol = !!data.symbol;
+      const hasSymbols = !!data.symbols && data.symbols.length > 0;
+      const hasStockAnalysisId = data.stockAnalysisId !== undefined;
+      return hasSymbol || hasSymbols || hasStockAnalysisId;
+    },
+    {
+      message: 'Either symbol, symbols, or stockAnalysisId is required',
+    }
+  )
+  .refine(
+    (data) => {
+      // Cannot provide both symbol and symbols
+      const hasSymbol = !!data.symbol;
+      const hasSymbols = !!data.symbols && data.symbols.length > 0;
+      return !(hasSymbol && hasSymbols);
+    },
+    {
+      message: 'Cannot provide both symbol and symbols',
+      path: ['symbols'],
+    }
+  );

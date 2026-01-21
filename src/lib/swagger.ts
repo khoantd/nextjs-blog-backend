@@ -54,7 +54,33 @@ const options = {
         info: {
             title: 'NextJS Blog Backend API',
             version: '1.0.0',
-            description: 'API documentation for the NextJS Blog Backend with AI workflows',
+            description: `API documentation for the NextJS Blog Backend with AI workflows.
+
+## Authentication
+
+This API supports two authentication methods:
+
+1. **Bearer Token Authentication** (Recommended for API clients)
+   - Include the token in the \`Authorization\` header: \`Authorization: Bearer <token>\`
+   - The token must be a valid NextAuth JWT token signed with \`NEXTAUTH_SECRET\`
+   - You can obtain a token by:
+     - Using the \`/api/auth/dev-token\` endpoint (development only)
+     - Extracting the session token from NextAuth cookies
+     - Using a NextAuth session token directly
+
+2. **Cookie-Based Authentication** (Used by web browsers)
+   - Include NextAuth session cookies in the request
+   - Cookie names: \`next-auth.session-token\` (development) or \`__Secure-next-auth.session-token\` (production)
+   - Automatically handled by browsers when authenticated via NextAuth
+
+**Note**: The authentication middleware checks Bearer tokens first, then falls back to cookies if no Bearer token is provided.
+
+## Role-Based Access Control
+
+The API implements role-based access control with three roles:
+- **viewer** (default): Can view content
+- **editor**: Can create and edit content, manage workflows
+- **admin**: Full access including user management and deletion`,
         },
         servers: [
             {
@@ -68,6 +94,7 @@ const options = {
                     type: 'http',
                     scheme: 'bearer',
                     bearerFormat: 'JWT',
+                    description: 'NextAuth JWT token. Include as: Authorization: Bearer <token>. The token must be a valid NextAuth session token signed with NEXTAUTH_SECRET. You can obtain a token from /api/auth/dev-token (development only) or extract it from NextAuth session cookies.',
                 },
             },
         },

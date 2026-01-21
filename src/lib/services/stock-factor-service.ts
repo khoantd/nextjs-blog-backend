@@ -418,6 +418,18 @@ export async function saveFactorAnalysisToDatabase(
   console.log(`[Factor Service] CSV first 500 chars: ${csvContent.substring(0, 500)}`);
 
   try {
+    // Import prisma dynamically to avoid circular dependencies
+    const { prisma } = await import('../prisma');
+    
+    // Fetch stock analysis to get minPctChange
+    const stockAnalysis = await prisma.stockAnalysis.findUnique({
+      where: { id: stockAnalysisId },
+      select: { minPctChange: true }
+    });
+    
+    const minPctChange = stockAnalysis?.minPctChange ?? 4.0;
+    console.log(`[Factor Service] Using minPctChange threshold: ${minPctChange}%`);
+    
     // Parse CSV to get raw data
     const stockData = parseStockCSV(csvContent);
     
@@ -444,13 +456,39 @@ export async function saveFactorAnalysisToDatabase(
       throw new Error('Failed to calculate percentage changes. Please check the data format.');
     }
 
-    // Save daily data with pctChange calculated
-    console.log(`[Factor Service] Saving ${dataWithPctChanges.length} days of raw price data with pctChange`);
-    const factorDataToSave = dataWithPctChanges.map((day: any, index: number) => {
+    // Enrich with technical indicators (MA20, MA50, MA200, RSI)
+    console.log(`[Factor Service] Calculating technical indicators for ${dataWithPctChanges.length} days`);
+    const enrichedData = enrichWithTechnicalIndicators(dataWithPctChanges);
+
+    // Analyze factors to get factor flags, passing minPctChange
+    console.log(`[Factor Service] Analyzing factors for ${enrichedData.length} days with minPctChange=${minPctChange}%`);
+    const factorAnalyses = analyzeFactors(enrichedData, { minPctChange });
+
+    // Log factor summary for debugging
+    const totalFactorCount = factorAnalyses.reduce((sum, analysis) => sum + analysis.factorCount, 0);
+    const daysWithFactors = factorAnalyses.filter(a => a.factorCount > 0).length;
+    console.log(`[Factor Service] Factor analysis summary: ${totalFactorCount} total factors across ${daysWithFactors} days (out of ${enrichedData.length} days)`);
+    
+    // Log factor breakdown
+    const factorBreakdown: Record<string, number> = {};
+    factorAnalyses.forEach(analysis => {
+      analysis.factorList.forEach(factor => {
+        factorBreakdown[factor] = (factorBreakdown[factor] || 0) + 1;
+      });
+    });
+    if (Object.keys(factorBreakdown).length > 0) {
+      console.log(`[Factor Service] Factor breakdown:`, factorBreakdown);
+    } else {
+      console.warn(`[Factor Service] WARNING: No factors detected in ${enrichedData.length} days. This may indicate insufficient data or data quality issues.`);
+    }
+
+    // Save daily data with pctChange, technical indicators, and factor flags
+    console.log(`[Factor Service] Saving ${enrichedData.length} days of complete factor data`);
+    const factorDataToSave = enrichedData.map((day: any, index: number) => {
       // Calculate pctChange: ((current - previous) / previous) * 100
       let pctChange: number | null = null;
-      if (index > 0 && dataWithPctChanges[index - 1].Close > 0) {
-        const prevClose = dataWithPctChanges[index - 1].Close;
+      if (index > 0 && enrichedData[index - 1].Close > 0) {
+        const prevClose = enrichedData[index - 1].Close;
         pctChange = ((day.Close - prevClose) / prevClose) * 100;
       } else if (day.pct_change !== undefined) {
         // Use already calculated pct_change if available
@@ -481,6 +519,30 @@ export async function saveFactorAnalysisToDatabase(
         }
       }
 
+      // Get factor flags from factor analysis
+      const factorAnalysis = factorAnalyses[index];
+      const factors = factorAnalysis?.factors || {};
+
+      // Convert NaN to null for database storage
+      const ma20 = day.ma20 !== undefined && !isNaN(day.ma20) ? parseFloat(day.ma20.toFixed(4)) : null;
+      const ma50 = day.ma50 !== undefined && !isNaN(day.ma50) ? parseFloat(day.ma50.toFixed(4)) : null;
+      const ma200 = day.ma200 !== undefined && !isNaN(day.ma200) ? parseFloat(day.ma200.toFixed(4)) : null;
+      const rsi = day.rsi !== undefined && !isNaN(day.rsi) ? parseFloat(day.rsi.toFixed(2)) : null;
+
+      // Debug logging for first few records to troubleshoot factor calculation
+      if (index < 3) {
+        console.log(`[Factor Service] Day ${index} (${normalizedDate}):`, {
+          Close: day.Close,
+          Volume: day.Volume,
+          ma20,
+          ma50,
+          ma200,
+          rsi,
+          factors: factors,
+          factorCount: factorAnalysis?.factorCount || 0
+        });
+      }
+
       return {
         stockAnalysisId,
         date: normalizedDate,
@@ -489,14 +551,27 @@ export async function saveFactorAnalysisToDatabase(
         high: day.High,
         low: day.Low,
         volume: day.Volume,
-        pctChange: pctChange !== null ? parseFloat(pctChange.toFixed(4)) : null
+        pctChange: pctChange !== null ? parseFloat(pctChange.toFixed(4)) : null,
+        // Technical indicators
+        ma20,
+        ma50,
+        ma200,
+        rsi,
+        // Factor flags - explicitly set to false if not true (handles undefined cases)
+        volumeSpike: factors.volume_spike === true,
+        breakMa50: factors.break_ma50 === true,
+        breakMa200: factors.break_ma200 === true,
+        rsiOver60: factors.rsi_over_60 === true,
+        marketUp: factors.market_up === true ? true : factors.market_up === false ? false : null,
+        sectorUp: factors.sector_up === true ? true : factors.sector_up === false ? false : null,
+        earningsWindow: factors.earnings_window === true ? true : factors.earnings_window === false ? false : null,
+        newsPositive: factors.news_positive === true ? true : factors.news_positive === false ? false : null,
+        shortCovering: factors.short_covering === true ? true : factors.short_covering === false ? false : null,
+        macroTailwind: factors.macro_tailwind === true ? true : factors.macro_tailwind === false ? false : null,
       };
     });
 
-    // Import prisma dynamically to avoid circular dependencies
-    const { prisma } = await import('../prisma');
-
-    // Bulk insert daily data
+    // Bulk insert daily data (prisma already imported at top of function)
     for (const data of factorDataToSave) {
       try {
         await prisma.dailyFactorData.upsert({
@@ -537,6 +612,20 @@ export async function calculateFactorsOnDemand(
 ) {
   const { skip, limit, ...factorOptions } = options;
   const { prisma } = await import('../prisma');
+  
+  // Fetch stock analysis to get minPctChange
+  const stockAnalysis = await prisma.stockAnalysis.findUnique({
+    where: { id: stockAnalysisId },
+    select: { minPctChange: true }
+  });
+  
+  const minPctChange = stockAnalysis?.minPctChange ?? 4.0;
+  
+  // Merge minPctChange into factor options
+  const factorOptionsWithThreshold = {
+    ...factorOptions,
+    minPctChange
+  };
 
   // Technical indicators need historical data to be accurate.
   // MA200 requires at least 200 previous data points.
@@ -555,34 +644,23 @@ export async function calculateFactorsOnDemand(
 
     if (rawData.length === 0) return [];
 
-    // Debug: Check first few database records
-    console.log(`[calculateFactorsOnDemand] Sample database records (first 3):`);
-    rawData.slice(0, 3).forEach((d, idx) => {
-      console.log(`  Record ${idx}: date="${d.date}" (type: ${typeof d.date}), close=${d.close}`);
-    });
-
     // Convert to ExtendedStockData format
+    // Use nullish coalescing (??) instead of || to preserve 0 values
     const stockData: ExtendedStockData[] = rawData.map(d => ({
       Date: d.date,
       Close: d.close,
-      Open: d.open || undefined,
-      High: d.high || undefined,
-      Low: d.low || undefined,
-      Volume: d.volume || undefined
+      Open: d.open ?? undefined,
+      High: d.high ?? undefined,
+      Low: d.low ?? undefined,
+      Volume: d.volume ?? undefined
     }));
-
-    // Debug: Check first few converted records
-    console.log(`[calculateFactorsOnDemand] Sample converted records (first 3):`);
-    stockData.slice(0, 3).forEach((d, idx) => {
-      console.log(`  Converted ${idx}: Date="${d.Date}" (type: ${typeof d.Date}), Close=${d.Close}`);
-    });
 
     // Enrich with percentage changes and indicators
     const dataWithPct = calculatePctChanges(stockData);
     const enrichedData = enrichWithTechnicalIndicators(dataWithPct);
 
-    // Perform factor analysis
-    const factorAnalyses = analyzeFactors(enrichedData, factorOptions);
+    // Perform factor analysis with minPctChange
+    const factorAnalyses = analyzeFactors(enrichedData, factorOptionsWithThreshold);
 
     // Merge enriched technical data with boolean factors
     return enrichedData.map((data, index) => {
@@ -615,13 +693,14 @@ export async function calculateFactorsOnDemand(
   if (rawData.length === 0) return [];
 
   // 2. Convert to ExtendedStockData format
+  // Use nullish coalescing (??) instead of || to preserve 0 values
   const stockData: ExtendedStockData[] = rawData.map(d => ({
     Date: d.date,
     Close: d.close,
-    Open: d.open || undefined,
-    High: d.high || undefined,
-    Low: d.low || undefined,
-    Volume: d.volume || undefined
+    Open: d.open ?? undefined,
+    High: d.high ?? undefined,
+    Low: d.low ?? undefined,
+    Volume: d.volume ?? undefined
   }));
 
   // 3. Enrich with percentage changes and indicators
@@ -730,7 +809,22 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?
   }
 
   // Reconstruct the StockAnalysisResult-like structure
-  // First, build transactions from factorTables (significant price movements)
+  // First, calculate enriched data early so we can use it for both transaction types
+  let enrichedDataForTransactions: any[] = [];
+  if (filteredDailyFactorData.length > 0) {
+    console.log(`[getAnalysisResultsFromDB] Calculating enriched data for transactions`);
+    const enrichedDataWithFactors = await calculateFactorsOnDemand(stockAnalysisId, {});
+    
+    // Filter the enriched data by period as well
+    enrichedDataForTransactions = enrichedDataWithFactors.filter(row => {
+      if (!row.Date) return false;
+      const rowDate = new Date(row.Date);
+      return !options?.startDate || !options?.endDate || (rowDate >= new Date(options.startDate) && rowDate <= new Date(options.endDate));
+    });
+    console.log(`[getAnalysisResultsFromDB] Enriched data for transactions: ${enrichedDataForTransactions.length} records`);
+  }
+  
+  // Build transactions from factorTables (significant price movements)
   console.log(`[getAnalysisResultsFromDB] Processing ${filteredFactorTables.length} factor tables`);
   
   const transactionsFromFactors = filteredFactorTables.map((ft, index) => {
@@ -742,6 +836,14 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?
     // Find corresponding daily data for price and pctChange
     const dailyData = filteredDailyFactorData.find(df => df.date === ft.date);
     
+    // Find corresponding enriched data for technical indicators
+    const enrichedRow = enrichedDataForTransactions.length > 0 
+      ? enrichedDataForTransactions.find(row => row.Date === ft.date)
+      : null;
+    
+    // Find corresponding daily score
+    const dailyScore = filteredDailyScores.find(ds => ds.date === ft.date);
+    
     // Debug: Check factor table date
     console.log(`[getAnalysisResultsFromDB] Factor table ${index}: date="${ft.date}" (type: ${typeof ft.date}), transactionId=${ft.transactionId}`);
 
@@ -749,34 +851,39 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?
       tx: ft.transactionId,
       date: ft.date,
       close: dailyData?.close || 0,
+      open: dailyData?.open,
+      high: dailyData?.high,
+      low: dailyData?.low,
+      volume: dailyData?.volume,
       pctChange: dailyData?.pctChange || 0,
       factors,
-      factorCount: factors.length
+      factorCount: factors.length,
+      // Technical indicators from enriched data or daily data
+      ma20: enrichedRow?.ma20 ?? dailyData?.ma20,
+      ma50: enrichedRow?.ma50 ?? dailyData?.ma50,
+      ma200: enrichedRow?.ma200 ?? dailyData?.ma200,
+      rsi: enrichedRow?.rsi ?? dailyData?.rsi,
+      // Daily scores
+      score: dailyScore?.score,
+      aboveThreshold: dailyScore?.aboveThreshold
     };
   });
 
   // Always create transactions from all dailyFactorData for charting
   // This ensures charts can display normal price movements regardless of significance
   let transactions = transactionsFromFactors;
-  let filteredEnrichedData: any[] = [];
   
   // If we have daily factor data, create chart transactions from all daily data
-  if (filteredDailyFactorData.length > 0) {
+  if (filteredDailyFactorData.length > 0 && enrichedDataForTransactions.length > 0) {
     console.log(`[getAnalysisResultsFromDB] Creating chart transactions from filtered dailyFactorData (${filteredDailyFactorData.length} days)`);
     
-    // Calculate factors on-demand to get proper factor data
-    const enrichedDataWithFactors = await calculateFactorsOnDemand(stockAnalysisId, {});
-    
-    // Filter the enriched data by period as well
-    filteredEnrichedData = enrichedDataWithFactors.filter(row => {
-      if (!row.Date) return false;
-      const rowDate = new Date(row.Date);
-      return !options?.startDate || !options?.endDate || (rowDate >= new Date(options.startDate) && rowDate <= new Date(options.endDate));
-    });
+    // Use the pre-calculated enriched data
+    const filteredEnrichedData = enrichedDataForTransactions;
     
     console.log(`[getAnalysisResultsFromDB] Enriched data filtered to ${filteredEnrichedData.length} records`);
     
     // Create transactions from filtered daily data for charting
+    // Enrich with technical indicators, OHLC, volume, and daily scores
     transactions = filteredEnrichedData.map((row, index) => {
       // Ensure date is valid, skip if not
       if (!row.Date || row.Date === undefined || row.Date === null || row.Date === '') {
@@ -784,13 +891,33 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?
         return null;
       }
       
+      const txDate = row.Date;
+      
+      // Find corresponding daily score
+      const dailyScore = filteredDailyScores.find(ds => ds.date === txDate);
+      
+      // Find corresponding daily factor data for additional fields
+      const dailyData = filteredDailyFactorData.find(df => df.date === txDate);
+      
       return {
         tx: index + 1,
-        date: row.Date,
+        date: txDate,
         close: row.Close,
+        open: row.Open,
+        high: row.High,
+        low: row.Low,
+        volume: row.Volume,
         pctChange: row.pct_change || 0,
         factors: row.factorList || [],
-        factorCount: row.factorCount || 0
+        factorCount: row.factorCount || 0,
+        // Technical indicators
+        ma20: row.ma20,
+        ma50: row.ma50,
+        ma200: row.ma200,
+        rsi: row.rsi,
+        // Daily scores
+        score: dailyScore?.score,
+        aboveThreshold: dailyScore?.aboveThreshold
       };
     }).filter((tx): tx is NonNullable<typeof tx> => tx !== null);
     
@@ -817,7 +944,7 @@ export async function getAnalysisResultsFromDB(stockAnalysisId: number, options?
   
   // Get enriched data for factor counts and correlation
   // Use filtered enriched data if available (from chart transactions), otherwise fetch all
-  let enrichedDataForAnalysis = filteredEnrichedData.length > 0 ? filteredEnrichedData : [];
+  let enrichedDataForAnalysis = enrichedDataForTransactions.length > 0 ? enrichedDataForTransactions : [];
   if (enrichedDataForAnalysis.length === 0) {
     // Fallback: fetch all enriched data if filtered data wasn't created
     enrichedDataForAnalysis = await calculateFactorsOnDemand(stockAnalysisId, {});

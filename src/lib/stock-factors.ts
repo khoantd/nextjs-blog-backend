@@ -146,6 +146,39 @@ export function calculateMA(prices: number[], period: number): number[] {
 }
 
 /**
+ * Calculate Bollinger Bands width (normalized)
+ * Width = (Upper - Lower) / Middle
+ */
+export function calculateBollingerBandsWidth(
+  prices: number[],
+  period: number = 20,
+  stdDev: number = 2
+): number[] {
+  const result: number[] = [];
+
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1) {
+      result.push(NaN);
+      continue;
+    }
+
+    const window = prices.slice(i - period + 1, i + 1);
+    const mean = window.reduce((sum, p) => sum + p, 0) / period;
+    const variance = window.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / period;
+    const std = Math.sqrt(variance);
+
+    const middle = mean;
+    const upper = middle + stdDev * std;
+    const lower = middle - stdDev * std;
+
+    const width = middle !== 0 ? (upper - lower) / middle : NaN;
+    result.push(width);
+  }
+
+  return result;
+}
+
+/**
  * Calculate RSI (Relative Strength Index)
  */
 export function calculateRSI(prices: number[], period: number = 14): number[] {
@@ -194,6 +227,7 @@ export function analyzeFactors(
     newsData?: Array<{ date: string; sentiment: 'positive' | 'negative' | 'neutral' }>;
     shortInterest?: number;
     macroEvents?: Array<{ date: string; favorable: boolean }>;
+    minPctChange?: number; // Minimum percentage change threshold for strong_move factor (default: 4.0)
   } = {}
 ): FactorAnalysis[] {
   const analyses: FactorAnalysis[] = [];
@@ -212,12 +246,21 @@ export function analyzeFactors(
     const factors: Partial<Record<StockFactor, boolean>> = {};
     const date = new Date(data.Date).toISOString().split('T')[0];
 
+    // Initialize all technical factors to false (will be set to true if conditions are met)
+    // This ensures factors are always explicitly set, not undefined
+    factors.volume_spike = false;
+    factors.break_ma50 = false;
+    factors.break_ma200 = false;
+    factors.rsi_over_60 = false;
+
     // Market up: Check if Nasdaq surged
     if (options.nasdaqData) {
       const nasdaqDay = options.nasdaqData.find(n =>
         new Date(n.date).toISOString().split('T')[0] === date
       );
       factors.market_up = nasdaqDay ? nasdaqDay.pct_change > 1.5 : false;
+    } else {
+      factors.market_up = false;
     }
 
     // Sector up: Check if sector performed well
@@ -226,6 +269,8 @@ export function analyzeFactors(
         new Date(s.date).toISOString().split('T')[0] === date
       );
       factors.sector_up = sectorDay ? sectorDay.pct_change > 1.0 : false;
+    } else {
+      factors.sector_up = false;
     }
 
     // Earnings window: Within ±3 days
@@ -236,12 +281,15 @@ export function analyzeFactors(
         const diffDays = Math.abs((currentDate.getTime() - earnDateTime.getTime()) / (1000 * 60 * 60 * 24));
         return diffDays <= 3;
       });
+    } else {
+      factors.earnings_window = false;
     }
 
     // Volume spike: Volume > 1.5x MA20
     if (data.Volume && volumeMA20[index] && !isNaN(volumeMA20[index]) && volumeMA20[index] > 0) {
       factors.volume_spike = data.Volume > volumeMA20[index] * 1.5;
     }
+    // If conditions not met, volume_spike remains false (already initialized above)
 
     // Break MA50
     if (ma50[index] && !isNaN(ma50[index]) && index > 0 && ma50[index - 1] && !isNaN(ma50[index - 1])) {
@@ -249,6 +297,7 @@ export function analyzeFactors(
       const currentAboveMA50 = data.Close > ma50[index];
       factors.break_ma50 = previousBelowMA50 && currentAboveMA50;
     }
+    // If conditions not met, break_ma50 remains false (already initialized above)
 
     // Break MA200
     if (ma200[index] && !isNaN(ma200[index]) && index > 0 && ma200[index - 1] && !isNaN(ma200[index - 1])) {
@@ -256,11 +305,13 @@ export function analyzeFactors(
       const currentAboveMA200 = data.Close > ma200[index];
       factors.break_ma200 = previousBelowMA200 && currentAboveMA200;
     }
+    // If conditions not met, break_ma200 remains false (already initialized above)
 
     // RSI over 60
     if (rsi[index] && !isNaN(rsi[index])) {
       factors.rsi_over_60 = rsi[index] > 60;
     }
+    // If conditions not met, rsi_over_60 remains false (already initialized above)
 
     // Positive news
     if (options.newsData) {
@@ -268,11 +319,15 @@ export function analyzeFactors(
         new Date(n.date).toISOString().split('T')[0] === date
       );
       factors.news_positive = newsDay ? newsDay.sentiment === 'positive' : false;
+    } else {
+      factors.news_positive = false;
     }
 
     // Short covering: High short interest + price increase
     if (options.shortInterest && data.pct_change) {
       factors.short_covering = options.shortInterest > 15 && data.pct_change > 2;
+    } else {
+      factors.short_covering = false;
     }
 
     // Macro tailwind
@@ -281,11 +336,17 @@ export function analyzeFactors(
         new Date(m.date).toISOString().split('T')[0] === date
       );
       factors.macro_tailwind = macroEvent ? macroEvent.favorable : false;
+    } else {
+      factors.macro_tailwind = false;
     }
 
     // Strong move: Significant price increase without requiring technical indicators
+    // Use minPctChange from options, defaulting to 4.0 if not provided
+    const minPctChange = options.minPctChange ?? 4.0;
     if (data.pct_change !== undefined && data.pct_change !== null) {
-      factors.strong_move = data.pct_change >= 4.0; // 4% or more increase
+      factors.strong_move = data.pct_change >= minPctChange;
+    } else {
+      factors.strong_move = false;
     }
 
     const factorList = (Object.keys(factors) as StockFactor[]).filter(
